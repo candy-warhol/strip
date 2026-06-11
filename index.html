@@ -214,7 +214,8 @@
   }
 
   /* toasts */
-  #toasts{position:fixed; bottom:270px; left:50%; transform:translateX(-50%); z-index:60; display:flex; flex-direction:column; gap:6px; align-items:center;}
+  #media-pool{position:absolute; left:-9999px; top:0; width:1px; height:1px; overflow:hidden; opacity:0; pointer-events:none;}
+  #toasts{position:fixed; bottom:270px; left:50%; transform:translateX(-50%); z-index:90; display:flex; flex-direction:column; gap:6px; align-items:center;}
   .toast{
     background:var(--panel-2); border:1px solid var(--line); color:var(--ink);
     padding:7px 14px; border-radius:var(--radius); font-size:12px;
@@ -290,7 +291,7 @@
     #lib-backdrop.open{opacity:1; pointer-events:auto;}
 
     #export-card{width:calc(100vw - 32px); max-width:380px;}
-    #toasts{bottom:calc(46vh + 16px);}
+    #toasts{top:calc(44px + env(safe-area-inset-top) + 10px); bottom:auto; max-width:92vw;}
   }
 
   /* fatter trim handles wherever the pointer is coarse (touch) */
@@ -374,6 +375,7 @@
   </div>
 </div>
 
+<div id="media-pool" aria-hidden="true"></div>
 <div id="lib-backdrop"></div>
 <div id="drag-ghost"></div>
 <div id="toasts"></div>
@@ -422,8 +424,10 @@ function toast(msg, warn) {
   el.className = "toast" + (warn ? " warn" : "");
   el.textContent = msg;
   $("#toasts").appendChild(el);
-  setTimeout(() => { el.style.opacity = "0"; el.style.transition = "opacity .3s"; }, 3400);
-  setTimeout(() => el.remove(), 3800);
+  const life = warn ? 9000 : 3400;   // errors linger so they're actually readable
+  const dismiss = () => { el.style.opacity = "0"; el.style.transition = "opacity .3s"; setTimeout(() => el.remove(), 320); };
+  const timer = setTimeout(dismiss, life);
+  el.addEventListener("click", () => { clearTimeout(timer); dismiss(); });  // tap to dismiss early
 }
 
 /* ---------------- state ---------------- */
@@ -536,43 +540,52 @@ function ingestFile(file, type) {
       v.muted = false;                // video clips carry their own audio in preview
       v.volume = 1;
       v.playsInline = true;
+      v.setAttribute("playsinline", "");
+      v.setAttribute("webkit-playsinline", "");
       v.preload = "auto";
       v.crossOrigin = "anonymous";
       let settled = false;
       const fail = () => { if (!settled) { settled = true; clearTimeout(stall); URL.revokeObjectURL(url); reject(new Error("video decode failed")); } };
-      // some unsupported codecs (e.g. ProRes in .mov) fire neither 'loadeddata' nor 'error' — bail out
-      const stall = setTimeout(fail, 15000);
+      // an undecodable codec can fire neither metadata nor error — bail out instead of hanging forever
+      const stall = setTimeout(fail, 20000);
       v.onerror = fail;
-      v.onloadeddata = () => {
-        // capture first frame for the thumbnail
-        const grab = () => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(stall);
-          let thumb = null;
-          try {
-            const c = document.createElement("canvas");
-            const s = 180 / Math.max(1, v.videoWidth);
-            c.width = Math.max(2, Math.round(v.videoWidth * s));
-            c.height = Math.max(2, Math.round(v.videoHeight * s));
-            c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
-            thumb = c.toDataURL("image/jpeg", 0.7);
-          } catch (e) { /* tainted or decode issue — fall back to icon */ }
-          resolve({
-            id, type, name: file.name, url, file,
-            duration: v.duration && isFinite(v.duration) ? v.duration : 0,
-            width: v.videoWidth, height: v.videoHeight,
-            videoEl: v, thumb,
-          });
+
+      // Best-effort poster frame. iOS won't reliably decode an off-screen frame to canvas,
+      // so this NEVER gates import — it just upgrades the icon to a real thumb if it works.
+      const grabThumb = (item) => {
+        try {
+          const c = document.createElement("canvas");
+          const s = 180 / Math.max(1, v.videoWidth);
+          c.width = Math.max(2, Math.round(v.videoWidth * s));
+          c.height = Math.max(2, Math.round(v.videoHeight * s));
+          c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+          const data = c.toDataURL("image/jpeg", 0.7);
+          if (data && data.length > 1000) { item.thumb = data; renderLibrary(); }
+        } catch (e) { /* leave the icon */ }
+      };
+
+      // Resolve as soon as we have metadata — that's all we need to put the clip on the timeline.
+      v.onloadedmetadata = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(stall);
+        const item = {
+          id, type, name: file.name, url, file,
+          duration: v.duration && isFinite(v.duration) ? v.duration : 0,
+          width: v.videoWidth, height: v.videoHeight,
+          videoEl: v, thumb: null,
         };
-        if (v.currentTime > 0) grab();
-        else {
-          v.onseeked = grab;
-          try { v.currentTime = 0.001; } catch (e) { grab(); }
-          setTimeout(grab, 1500); // safety net if 'seeked' never fires
-        }
+        resolve(item);
+        // try for a thumbnail afterwards, without blocking anything
+        v.onseeked = () => grabThumb(item);
+        if (v.readyState >= 2) grabThumb(item);
+        else v.addEventListener("loadeddata", () => grabThumb(item), { once: true });
+        try { v.currentTime = Math.min(0.1, (v.duration || 1) * 0.1); } catch (e) {}
       };
       v.src = url;
+      const pool = document.getElementById("media-pool");
+      if (pool) pool.appendChild(v);  // in-DOM helps iOS actually load metadata
+      v.load();
     });
   }
   // audio
@@ -586,6 +599,8 @@ function ingestFile(file, type) {
       audioEl: a, thumb: null,
     });
     a.src = url;
+    const pool = document.getElementById("media-pool");
+    if (pool) pool.appendChild(a);
   });
 }
 
@@ -601,8 +616,8 @@ function removeMedia(id) {
     removedClips += before - t.clips.length;
   }
   if (selection && !findClip(selection.clipId)) selection = null;
-  if (item.videoEl) { item.videoEl.pause(); item.videoEl.removeAttribute("src"); item.videoEl.load(); }
-  if (item.audioEl) { item.audioEl.pause(); item.audioEl.removeAttribute("src"); item.audioEl.load(); }
+  if (item.videoEl) { item.videoEl.pause(); item.videoEl.removeAttribute("src"); item.videoEl.load(); item.videoEl.remove(); }
+  if (item.audioEl) { item.audioEl.pause(); item.audioEl.removeAttribute("src"); item.audioEl.load(); item.audioEl.remove(); }
   URL.revokeObjectURL(item.url); // avoid leaking object URLs
   mediaLibrary.splice(idx, 1);
   renderLibrary();
