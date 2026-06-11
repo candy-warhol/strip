@@ -128,12 +128,12 @@
     flex:0 0 44px; display:flex; align-items:center; gap:12px;
     padding:0 16px; border-top:1px solid var(--line); background:var(--panel);
   }
-  #play-btn{
+  #play-btn, #back-btn{
     width:30px; height:30px; border-radius:50%; border:1px solid var(--line);
     display:flex; align-items:center; justify-content:center; background:var(--panel-2);
   }
-  #play-btn:hover{border-color:var(--accent);}
-  #play-btn svg{width:12px; height:12px; fill:var(--ink);}
+  #play-btn:hover, #back-btn:hover{border-color:var(--accent);}
+  #play-btn svg, #back-btn svg{width:12px; height:12px; fill:var(--ink);}
   #timecode{font-family:var(--mono); font-size:13px; color:var(--ink); min-width:170px;}
   #timecode .total{color:var(--ink-faint);}
   #scrubber{flex:1; -webkit-appearance:none; appearance:none; height:4px; border-radius:2px; background:var(--line); cursor:pointer;}
@@ -200,11 +200,35 @@
   #playhead{
     position:absolute; top:0; bottom:0; width:1px; background:var(--accent); z-index:6; pointer-events:none;
   }
-  #playhead::before{
-    content:""; position:absolute; top:0; left:-5px;
+  #playhead-head{
+    position:absolute; top:0; left:-10px; width:20px; height:18px;
+    pointer-events:auto; cursor:ew-resize; touch-action:none;
+  }
+  #playhead-head::before{
+    content:""; position:absolute; top:0; left:5px;
     border:5px solid transparent; border-top:7px solid var(--accent); border-bottom:none;
   }
   #snap-guide{position:absolute; top:0; bottom:0; width:1px; background:var(--ink); opacity:.6; z-index:6; display:none; pointer-events:none;}
+
+  /* delete bubble (double-tap a clip) */
+  #clip-bubble{
+    position:fixed; z-index:85; display:none;
+    background:var(--panel-2); border:1px solid var(--line); border-radius:9px;
+    padding:5px; box-shadow:0 8px 24px rgba(0,0,0,.55);
+  }
+  #clip-bubble.show{display:block;}
+  #clip-bubble button{
+    background:var(--danger); color:#fff; border:none; border-radius:6px;
+    padding:9px 16px; font-size:12px; font-family:inherit; cursor:pointer;
+  }
+  /* armed Delete-clip button (a clip is selected) */
+  #del-clip-btn.armed{border-color:var(--danger); color:var(--danger);}
+  .icon-btn{
+    width:30px; height:26px; padding:0; display:inline-flex; align-items:center; justify-content:center;
+    font-size:16px; line-height:1;
+  }
+  .icon-btn svg{width:16px; height:16px;}
+  .icon-btn:disabled{opacity:.4;}
 
   /* drag ghost */
   #drag-ghost{
@@ -258,8 +282,8 @@
     #preview-col{flex:1 1 auto; min-height:0;}
     #stage-wrap{padding:10px;}
     #transport{flex:0 0 52px; gap:10px; padding:0 12px;}
-    #play-btn{width:40px; height:40px;}
-    #play-btn svg{width:15px; height:15px;}
+    #play-btn, #back-btn{width:40px; height:40px;}
+    #play-btn svg, #back-btn svg{width:15px; height:15px;}
     #timecode{font-size:12px; min-width:0;}
 
     #timeline-panel{flex:0 0 44vh; max-height:46vh;}
@@ -297,6 +321,10 @@
   /* fatter trim handles wherever the pointer is coarse (touch) */
   @media (pointer: coarse){
     .clip-handle{width:22px;}
+    .icon-btn{width:40px; height:34px;}
+    .icon-btn svg{width:19px; height:19px;}
+    #playhead-head{left:-20px; width:40px; height:30px;}
+    #playhead-head::before{left:15px; border-left-width:6px; border-right-width:6px; border-top-width:9px;}
     #scrubber{height:8px;}
     #scrubber::-webkit-slider-thumb{width:20px; height:20px;}
     #scrubber::-moz-range-thumb{width:20px; height:20px;}
@@ -334,7 +362,7 @@
     <div id="lib-sheet-hint">Tap an item to add it at the playhead.</div>
     <input type="file" id="file-input" accept=".mp4,.mov,.wav,.png,.jpg,.jpeg,video/mp4,video/quicktime,audio/wav,image/png,image/jpeg" multiple hidden>
     <div id="library-list">
-      <div id="library-empty">Drop MP4, WAV, PNG or JPG files anywhere in the window, or use “+ Add”. Drag items from here onto the timeline.</div>
+      <div id="library-empty">Drop MOV, MP4, WAV, PNG or JPG files anywhere in the window, or use “+ Add”. Drag items from here onto the timeline.</div>
     </div>
   </aside>
 
@@ -346,6 +374,9 @@
       </div>
     </div>
     <div id="transport">
+      <button id="back-btn" title="Jump to start (Home)">
+        <svg viewBox="0 0 12 12"><path d="M3 1h1.5v4.2L10 1.2v9.6L4.5 6.8V11H3z"/></svg>
+      </button>
       <button id="play-btn" title="Play / pause (Space)">
         <svg id="play-icon" viewBox="0 0 12 12"><path d="M2 1l9 5-9 5z"/></svg>
         <svg id="pause-icon" viewBox="0 0 12 12" style="display:none"><path d="M2 1h3v10H2zM7 1h3v10H7z"/></svg>
@@ -358,9 +389,10 @@
 
 <div id="timeline-panel">
   <div id="tl-toolbar">
-    <span>Timeline</span>
-    <button class="btn" id="add-track-btn" style="padding:2px 8px; font-size:11px;">+ Video track</button>
-    <button class="btn" id="del-clip-btn" style="padding:2px 8px; font-size:11px;" disabled>Delete clip</button>
+    <button class="btn icon-btn" id="add-track-btn" title="Add video track">+</button>
+    <button class="btn icon-btn" id="del-clip-btn" title="Delete clip" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 4h4M9 7l.7 12.5a1 1 0 0 0 1 .95h2.6a1 1 0 0 0 1-.95L15 7M10.5 10.5v6M13.5 10.5v6"/></svg>
+    </button>
     <span class="spacer"></span>
     <span>Zoom</span>
     <input type="range" id="zoom-slider" min="12" max="300" value="60">
@@ -369,7 +401,7 @@
     <div id="tl-inner">
       <div id="ruler"></div>
       <div id="tracks-host"></div>
-      <div id="playhead"></div>
+      <div id="playhead"><div id="playhead-head"></div></div>
       <div id="snap-guide"></div>
     </div>
   </div>
@@ -377,6 +409,7 @@
 
 <div id="media-pool" aria-hidden="true"></div>
 <div id="lib-backdrop"></div>
+<div id="clip-bubble"><button id="clip-bubble-del" type="button">Delete clip</button></div>
 <div id="drag-ghost"></div>
 <div id="toasts"></div>
 
@@ -543,7 +576,9 @@ function ingestFile(file, type) {
       v.setAttribute("playsinline", "");
       v.setAttribute("webkit-playsinline", "");
       v.preload = "auto";
-      v.crossOrigin = "anonymous";
+      // NOTE: do NOT set crossOrigin on these same-origin blob: URLs. On iOS 18+,
+      // crossOrigin="anonymous" on a same-origin source taints the canvas, which makes
+      // export throw "The operation is insecure" when reading composited frames.
       let settled = false;
       const fail = () => { if (!settled) { settled = true; clearTimeout(stall); URL.revokeObjectURL(url); reject(new Error("video decode failed")); } };
       // an undecodable codec can fire neither metadata nor error — bail out instead of hanging forever
@@ -650,7 +685,7 @@ function renderLibrary() {
   if (!mediaLibrary.length) {
     const empty = document.createElement("div");
     empty.id = "library-empty";
-    empty.textContent = "Drop MP4, WAV, PNG or JPG files anywhere in the window, or use “+ Add”. Drag items from here onto the timeline.";
+    empty.textContent = "Drop MOV, MP4, WAV, PNG or JPG files anywhere in the window, or use “+ Add”. Drag items from here onto the timeline.";
     host.appendChild(empty);
     return;
   }
@@ -764,6 +799,16 @@ function audioOverlaps(start, duration, ignoreClipId) {
   );
 }
 
+/* ---- clips on a single track may never overlap (visual or audio) ---- */
+function trackOverlaps(track, start, duration, ignoreClipId) {
+  const EPS = 1e-6;
+  return track.clips.some((c) =>
+    c.id !== ignoreClipId &&
+    start < c.startTime + c.duration - EPS &&
+    c.startTime < start + duration - EPS
+  );
+}
+
 /* ---- snapping: neighboring clip edges + playhead ---- */
 function snapTime(t, ignoreClipId) {
   const candidates = [0, playhead];
@@ -871,6 +916,9 @@ function renderTimeline() {
   }
   updatePlayheadEl();
   updateExportEnabled();
+  const hasSel = !!(selection && findClip(selection.clipId));
+  const delBtn = $("#del-clip-btn");
+  if (delBtn) { delBtn.disabled = !hasSel; delBtn.classList.toggle("armed", hasSel); }
 }
 
 function updatePlayheadEl() {
@@ -958,7 +1006,18 @@ function addClipAtPlayhead(media) {
     }
   } else {
     const vis = visualTracks();
-    track = vis[vis.length - 1]; // topmost visible layer
+    // each added clip gets its own layer: prefer an empty track (lowest first),
+    // else spin up a new one, else fall back to a free-at-playhead track / park.
+    track = vis.find((t) => t.clips.length === 0);
+    if (!track && vis.length < 8) {
+      track = { id: uid("trk"), type: "visual", clips: [] };
+      tracks.splice(tracks.indexOf(audioTrack()), 0, track);
+    }
+    if (!track) {
+      track = vis.slice().reverse().find((t) => !trackOverlaps(t, start, dur, null)) || vis[vis.length - 1];
+      if (trackOverlaps(track, start, dur, null))
+        start = track.clips.reduce((mx, c) => Math.max(mx, c.startTime + c.duration), 0);
+    }
   }
   const clip = dropNewClip(media, track, start, dur);
   if (clip) {
@@ -979,6 +1038,11 @@ function dropNewClip(media, track, startTime, duration) {
   if (track.type === "audio" && audioOverlaps(startTime, duration, null)) {
     // single-active-audio rule: reject overlapping drops outright
     toast("Only one audio clip can play at a time — that spot overlaps another clip.", true);
+    return null;
+  }
+  if (track.type === "visual" && trackOverlaps(track, startTime, duration, null)) {
+    // clips on one track can't overlap — stack on a different track for layering
+    toast("Clips can't overlap on a track — drop it on another track to layer them.", true);
     return null;
   }
   const clip = {
@@ -1009,6 +1073,19 @@ function startClipDrag(e, track, clip, el) {
   if (e.button !== 0) return;
   e.preventDefault();
   e.stopPropagation();
+
+  // double-tap / double-click → show the quick-delete bubble, don't start a drag
+  const now = performance.now();
+  if (lastTapClip.id === clip.id && now - lastTapClip.t < 320) {
+    lastTapClip = { id: null, t: 0 };
+    selection = { trackId: track.id, clipId: clip.id };
+    renderTimeline();
+    requestPreviewRedraw();
+    showClipBubble(clip.id);
+    return;
+  }
+  lastTapClip = { id: clip.id, t: now };
+
   selection = { trackId: track.id, clipId: clip.id };
   renderTimeline();
   requestPreviewRedraw();
@@ -1082,15 +1159,19 @@ function startClipDrag(e, track, clip, el) {
     window.removeEventListener("pointerup", up);
     showSnapGuide(null);
     const tr = currentTrackOf(clip);
-    if (tr && tr.type === "audio" && audioOverlaps(clip.startTime, clip.duration, clip.id)) {
-      // rule enforcement on move/trim too: revert and flash
+    if (tr && trackOverlaps(tr, clip.startTime, clip.duration, clip.id)) {
+      // clips can't overlap on a track — revert position, and the track too if it was re-parented
       clip.startTime = orig.startTime;
       clip.duration = orig.duration;
       clip.sourceStart = orig.sourceStart;
+      if (tr !== origTrack) moveClipToTrack(clip, origTrack);
+      selection = { trackId: origTrack.id, clipId: clip.id };
       renderTimeline();
       const elNow = tracksHost.querySelector(`.clip[data-clip-id="${clip.id}"]`);
       if (elNow) elNow.classList.add("rejected");
-      toast("Audio clips can't overlap — move reverted.", true);
+      toast(tr.type === "audio"
+        ? "Audio clips can't overlap — move reverted."
+        : "Clips can't overlap on a track — move reverted.", true);
     }
     if (moved) requestPreviewRedraw();
   };
@@ -1116,9 +1197,33 @@ function deleteSelectedClip() {
   if (!sel) return;
   sel.track.clips.splice(sel.track.clips.indexOf(sel.clip), 1);
   selection = null;
+  hideClipBubble();
   renderTimeline();
   requestPreviewRedraw();
 }
+
+/* ---- double-tap / double-click a clip → quick-delete bubble ---- */
+let lastTapClip = { id: null, t: 0 };
+const clipBubble = $("#clip-bubble");
+function showClipBubble(clipId) {
+  const el = tracksHost.querySelector(`.clip[data-clip-id="${clipId}"]`);
+  if (!el) return;
+  clipBubble.classList.add("show");
+  const r = el.getBoundingClientRect();
+  const bw = clipBubble.offsetWidth || 110, bh = clipBubble.offsetHeight || 36;
+  let left = Math.max(8, Math.min(r.left + r.width / 2 - bw / 2, window.innerWidth - bw - 8));
+  let top = r.top - bh - 8;
+  if (top < 8) top = r.bottom + 8; // flip below if no room above
+  clipBubble.style.left = left + "px";
+  clipBubble.style.top = top + "px";
+}
+function hideClipBubble() { clipBubble.classList.remove("show"); }
+$("#clip-bubble-del").addEventListener("click", () => deleteSelectedClip());
+tlScroll.addEventListener("scroll", hideClipBubble);
+// any pointerdown outside the bubble dismisses it (capture, so it runs despite clip stopPropagation)
+window.addEventListener("pointerdown", (e) => {
+  if (clipBubble.classList.contains("show") && !clipBubble.contains(e.target)) hideClipBubble();
+}, true);
 
 /* ---------------- ruler scrub + playhead ---------------- */
 function scrubToClientX(clientX) {
@@ -1132,6 +1237,26 @@ rulerEl.addEventListener("pointerdown", (e) => {
   const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
   window.addEventListener("pointermove", move);
   window.addEventListener("pointerup", up);
+});
+
+/* grab the playhead head itself to scrub back/forward (esp. on touch) */
+const playheadHead = $("#playhead-head");
+playheadHead.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  if (playing) setPlaying(false);
+  try { playheadHead.setPointerCapture(e.pointerId); } catch (_) {}
+  scrubToClientX(e.clientX);
+  const move = (ev) => scrubToClientX(ev.clientX);
+  const up = (ev) => {
+    try { playheadHead.releasePointerCapture(ev.pointerId); } catch (_) {}
+    playheadHead.removeEventListener("pointermove", move);
+    playheadHead.removeEventListener("pointerup", up);
+    playheadHead.removeEventListener("pointercancel", up);
+  };
+  playheadHead.addEventListener("pointermove", move);
+  playheadHead.addEventListener("pointerup", up);
+  playheadHead.addEventListener("pointercancel", up);
 });
 
 /* clicking empty lane space clears selection */
@@ -1278,6 +1403,7 @@ function setPlaying(p) {
 }
 
 $("#play-btn").addEventListener("click", () => setPlaying(!playing));
+$("#back-btn").addEventListener("click", () => { setPlaying(false); seek(0); });
 $("#scrubber").addEventListener("input", (e) => seek(+e.target.value));
 
 window.addEventListener("keydown", (e) => {
@@ -1286,6 +1412,7 @@ window.addEventListener("keydown", (e) => {
   else if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteSelectedClip(); }
   else if (e.key === "ArrowLeft") seek(playhead - (e.shiftKey ? 1 : 1 / 60));
   else if (e.key === "ArrowRight") seek(playhead + (e.shiftKey ? 1 : 1 / 60));
+  else if (e.key === "Home") { e.preventDefault(); setPlaying(false); seek(0); }
 });
 
 /* ---------------- A/V element sync (preview only) ---------------- */
@@ -1555,6 +1682,17 @@ function endOverlayPointer(e) {
 }
 overlayCanvas.addEventListener("pointerup", endOverlayPointer);
 overlayCanvas.addEventListener("pointercancel", endOverlayPointer);
+
+/* clicking the empty stage area around the canvas clears the selection */
+$("#stage-wrap").addEventListener("pointerdown", (e) => {
+  if (e.target.id === "stage-wrap" || e.target.id === "stage") {
+    if (selection) {
+      selection = null;
+      renderTimeline();
+      requestPreviewRedraw();
+    }
+  }
+});
 
 /* ---------------- the preview loop ---------------- */
 /* If exactly one video clip is active, let its own playback drive the clock. This avoids
