@@ -2098,17 +2098,40 @@ $("#export-btn").addEventListener("click", () => {
   });
 });
 
+function isIOS() {
+  const ua = navigator.userAgent || "";
+  return /iP(hone|ad|od)/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
 async function runExport() {
   const totalDur = timelineDuration();
   if (totalDur <= 0) return;
   const haveVideoCodec = typeof VideoEncoder !== "undefined" && typeof VideoFrame !== "undefined" && typeof Mp4Muxer !== "undefined";
   const haveAudioCodec = typeof AudioEncoder !== "undefined";
   const wantAudio = hasTimelineAudio();
-  // Older iOS Safari (16.4–18.7) ships VideoEncoder but no AudioEncoder. Use the WebCodecs
-  // path only when it can carry the audio too; otherwise fall back to ffmpeg so sound survives.
-  const useWebCodecs = haveVideoCodec && (!wantAudio || haveAudioCodec);
-  if (useWebCodecs) await exportWithWebCodecs(totalDur);
-  else await exportWithFfmpeg(totalDur);
+  const ios = isIOS();
+
+  // No video encoder at all. On iPhone/iPad this means a non-Safari browser (Brave, Chrome,
+  // etc. all run in WKWebView, which doesn't expose WebCodecs). The ffmpeg fallback can't help
+  // here — it reads frames via a <video>→canvas draw that iOS taints — so guide to Safari.
+  if (!haveVideoCodec) {
+    if (ios) {
+      openExportModal("");
+      exportFinished(false, "Exporting needs WebCodecs, which iPhone and iPad only provide in Safari — not in Brave, Chrome, or other browser apps. Open this page in Safari and export there. You can keep editing in this browser.");
+      return;
+    }
+    await exportWithFfmpeg(totalDur); // desktop without WebCodecs — ffmpeg works fine there
+    return;
+  }
+
+  // We have a video encoder (taint-free path). Use ffmpeg only to gain AAC audio on platforms
+  // where it actually works (desktop Firefox/Linux). On iOS, ffmpeg taints, so prefer WebCodecs
+  // even if that means a video-only export when audio encoding isn't available.
+  if (wantAudio && !haveAudioCodec && !ios) {
+    await exportWithFfmpeg(totalDur);
+    return;
+  }
+  await exportWithWebCodecs(totalDur); // includes audio when possible, video-only otherwise
 }
 
 /* prepare the per-frame video sources + a frameSource fn for renderFrameAt */
