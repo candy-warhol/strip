@@ -331,7 +331,7 @@
       <button id="add-media-btn" title="Add media files">+ Add</button>
     </div>
     <div id="lib-sheet-hint">Tap an item to add it at the playhead.</div>
-    <input type="file" id="file-input" accept=".mp4,.wav,.png,.jpg,.jpeg,video/mp4,audio/wav,image/png,image/jpeg" multiple hidden>
+    <input type="file" id="file-input" accept=".mp4,.mov,.wav,.png,.jpg,.jpeg,video/mp4,video/quicktime,audio/wav,image/png,image/jpeg" multiple hidden>
     <div id="library-list">
       <div id="library-empty">Drop MP4, WAV, PNG or JPG files anywhere in the window, or use “+ Add”. Drag items from here onto the timeline.</div>
     </div>
@@ -480,6 +480,7 @@ function hasAnyWork() {
 /* ---------------- media ingestion ---------------- */
 const ACCEPTED = {
   "video/mp4": "video",
+  "video/quicktime": "video",
   "image/png": "image",
   "image/jpeg": "image",
   "audio/wav": "audio",
@@ -490,13 +491,13 @@ const ACCEPTED = {
 function typeForFile(file) {
   if (ACCEPTED[file.type]) return ACCEPTED[file.type];
   const ext = file.name.split(".").pop().toLowerCase();
-  return { mp4: "video", png: "image", jpg: "image", jpeg: "image", wav: "audio" }[ext] || null;
+  return { mp4: "video", mov: "video", png: "image", jpg: "image", jpeg: "image", wav: "audio" }[ext] || null;
 }
 
 async function addFiles(fileList) {
   for (const file of fileList) {
     const type = typeForFile(file);
-    if (!type) { toast(`“${file.name}” skipped — only MP4, WAV, PNG, JPG are supported.`, true); continue; }
+    if (!type) { toast(`“${file.name}” skipped — only MP4, MOV, WAV, PNG, JPG are supported.`, true); continue; }
     try {
       const item = await ingestFile(file, type);
       mediaLibrary.push(item);
@@ -504,7 +505,10 @@ async function addFiles(fileList) {
       if (type === "video" && !project.sizeLockedToVideo) lockCanvasToVideo(item);
     } catch (err) {
       console.error(err);
-      toast(`Couldn't read “${file.name}”. The file may be corrupt or unsupported.`, true);
+      const hint = type === "video"
+        ? `Couldn't read “${file.name}”. If it's a .mov, the browser may not support its codec (e.g. ProRes or HEVC) — try an H.264 version.`
+        : `Couldn't read “${file.name}”. The file may be corrupt or unsupported.`;
+      toast(hint, true);
     }
   }
   updateExportEnabled();
@@ -535,13 +539,16 @@ function ingestFile(file, type) {
       v.preload = "auto";
       v.crossOrigin = "anonymous";
       let settled = false;
-      const fail = () => { if (!settled) { settled = true; URL.revokeObjectURL(url); reject(new Error("video decode failed")); } };
+      const fail = () => { if (!settled) { settled = true; clearTimeout(stall); URL.revokeObjectURL(url); reject(new Error("video decode failed")); } };
+      // some unsupported codecs (e.g. ProRes in .mov) fire neither 'loadeddata' nor 'error' — bail out
+      const stall = setTimeout(fail, 15000);
       v.onerror = fail;
       v.onloadeddata = () => {
         // capture first frame for the thumbnail
         const grab = () => {
           if (settled) return;
           settled = true;
+          clearTimeout(stall);
           let thumb = null;
           try {
             const c = document.createElement("canvas");
