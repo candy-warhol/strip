@@ -1,7 +1,8 @@
-# strip
+# STRIP
 a barebones video editor
 
 Lightweight, browser-based video editor in a single HTML file. No install, no server. Your media never leaves your device.
+
 ▶ To Open Strip · use Chrome, Edge, or Safari · You must be online to export
 
 ### Features
