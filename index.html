@@ -1290,6 +1290,10 @@ window.addEventListener("keydown", (e) => {
 
 /* ---------------- A/V element sync (preview only) ---------------- */
 let currentAudioClipId = null;
+const COARSE_POINTER = matchMedia("(pointer: coarse)").matches;
+// iOS snaps every currentTime seek to a keyframe (often 1–2s away), so during playback
+// we tolerate much more drift on touch and instead let the video drive the clock (below).
+const DRIFT_PLAY = COARSE_POINTER ? 0.6 : 0.25;
 
 function syncMediaElements(force) {
   // videos: keep each active video element near its source time
@@ -1303,7 +1307,7 @@ function syncMediaElements(force) {
       const target = clip.sourceStart + (playhead - clip.startTime);
       const drift = Math.abs(v.currentTime - target);
       if (playing) {
-        if (drift > 0.25 || force) { try { v.currentTime = target; } catch (e) {} }
+        if (drift > DRIFT_PLAY || force) { try { v.currentTime = target; } catch (e) {} }
         if (v.paused) tryPlay(v);
       } else {
         if (!v.paused) v.pause();
@@ -1326,7 +1330,7 @@ function syncMediaElements(force) {
       const target = aClip.sourceStart + (playhead - aClip.startTime);
       const drift = Math.abs(a.currentTime - target);
       if (playing) {
-        if (drift > 0.25 || force || currentAudioClipId !== aClip.id) { try { a.currentTime = target; } catch (e) {} }
+        if (drift > DRIFT_PLAY || force || currentAudioClipId !== aClip.id) { try { a.currentTime = target; } catch (e) {} }
         if (a.paused) tryPlay(a);
       } else {
         if (!a.paused) a.pause();
@@ -1338,7 +1342,6 @@ function syncMediaElements(force) {
 }
 
 /* ---------------- selection overlay (NOT part of renderFrameAt) ---------------- */
-const COARSE_POINTER = matchMedia("(pointer: coarse)").matches;
 const HANDLE_R = COARSE_POINTER ? 13 : 7;  // canvas-space px, scaled by 1/stageScale for constant screen size
 const HIT_PAD = COARSE_POINTER ? 12 : 5;   // extra grab slack around handles
 const ROT_OFFSET = COARSE_POINTER ? 48 : 36;
@@ -1554,9 +1557,34 @@ overlayCanvas.addEventListener("pointerup", endOverlayPointer);
 overlayCanvas.addEventListener("pointercancel", endOverlayPointer);
 
 /* ---------------- the preview loop ---------------- */
+/* If exactly one video clip is active, let its own playback drive the clock. This avoids
+   per-frame seek-correction (which iOS turns into 1–2s keyframe jumps) and keeps the
+   clip's own audio perfectly in sync, since nothing is seeking it. */
+function leadVideoForClock() {
+  let found = null;
+  for (const track of visualTracks()) {
+    for (const clip of track.clips) {
+      const m = mediaById(clip.mediaId);
+      if (!m || m.type !== "video" || !m.videoEl) continue;
+      if (playhead >= clip.startTime && playhead < clip.startTime + clip.duration) {
+        if (found) return null;        // 2+ active videos → need the deterministic wall clock
+        found = { v: m.videoEl, clip };
+      }
+    }
+  }
+  return found;
+}
+
 function previewLoop(now) {
   if (playing) {
-    playhead = clockTimeStart + (now - clockWallStart) / 1000;
+    const lead = leadVideoForClock();
+    if (lead && lead.v.readyState >= 2 && !lead.v.paused && !lead.v.seeking) {
+      // clock follows the video's real playback position
+      playhead = lead.clip.startTime + (lead.v.currentTime - lead.clip.sourceStart);
+      clockWallStart = now; clockTimeStart = playhead; // keep wall baseline live for a seamless handoff
+    } else {
+      playhead = clockTimeStart + (now - clockWallStart) / 1000;
+    }
     const dur = timelineDuration();
     if (playhead >= dur) { playhead = dur; setPlaying(false); }
     syncMediaElements(false);
@@ -1619,6 +1647,14 @@ $("#export-cancel").addEventListener("click", () => { if (exportState) exportSta
 $("#export-done").addEventListener("click", () => exportModal.classList.remove("open"));
 
 /* ---------- shared: offline audio render of the single audio track ---------- */
+function hasTimelineAudio() {
+  if (audioTrack().clips.length > 0) return true;
+  return visualTracks().some((t) => t.clips.some((c) => {
+    const m = mediaById(c.mediaId);
+    return m && m.type === "video";
+  }));
+}
+
 async function renderTimelineAudio(totalDur, sampleRate) {
   // audio-track clips + the embedded audio of video clips on visual tracks
   const sources = [...audioTrack().clips];
@@ -1867,8 +1903,13 @@ $("#export-btn").addEventListener("click", () => {
 async function runExport() {
   const totalDur = timelineDuration();
   if (totalDur <= 0) return;
-  const haveWebCodecs = typeof VideoEncoder !== "undefined" && typeof VideoFrame !== "undefined" && typeof Mp4Muxer !== "undefined";
-  if (haveWebCodecs) await exportWithWebCodecs(totalDur);
+  const haveVideoCodec = typeof VideoEncoder !== "undefined" && typeof VideoFrame !== "undefined" && typeof Mp4Muxer !== "undefined";
+  const haveAudioCodec = typeof AudioEncoder !== "undefined";
+  const wantAudio = hasTimelineAudio();
+  // Older iOS Safari (16.4–18.7) ships VideoEncoder but no AudioEncoder. Use the WebCodecs
+  // path only when it can carry the audio too; otherwise fall back to ffmpeg so sound survives.
+  const useWebCodecs = haveVideoCodec && (!wantAudio || haveAudioCodec);
+  if (useWebCodecs) await exportWithWebCodecs(totalDur);
   else await exportWithFfmpeg(totalDur);
 }
 
@@ -1934,7 +1975,7 @@ async function exportWithWebCodecs(totalDur) {
   setExportProgress(0, "rendering audio…");
   const SR = 48000;
   let audioBuf = null;
-  const wantAudio = audioTrack().clips.length > 0;
+  const wantAudio = hasTimelineAudio();  // includes audio embedded in video clips
   if (wantAudio) {
     audioBuf = await renderTimelineAudio(totalDur, SR);
     if (audioBuf && typeof AudioEncoder === "undefined") {
