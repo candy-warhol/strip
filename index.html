@@ -1,0 +1,2128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Strip — Browser Video Editor</title>
+<style>
+  :root{
+    --bg:        #101114;
+    --panel:     #17181c;
+    --panel-2:   #1d1f24;
+    --line:      #2a2c33;
+    --line-soft: #222329;
+    --ink:       #e8e6e1;
+    --ink-dim:   #9a978f;
+    --ink-faint: #5c5a54;
+    --accent:    #e8b35a;   /* amber — playhead, selection, primary action */
+    --accent-ink:#171206;
+    --clip-vid:  #2e4f5e;
+    --clip-img:  #3d4a2e;
+    --clip-aud:  #54402e;
+    --danger:    #c8584a;
+    --mono: "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, ui-monospace, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --radius: 4px;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:var(--sans); font-size:13px;
+    display:flex; flex-direction:column;
+    -webkit-font-smoothing:antialiased;
+  }
+  button{font:inherit; color:inherit; background:none; border:none; cursor:pointer;}
+  button:focus-visible, select:focus-visible, input:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
+
+  /* ---------- top bar ---------- */
+  #topbar{
+    display:flex; align-items:center; gap:14px;
+    padding:0 14px; height:46px; flex:0 0 46px;
+    border-bottom:1px solid var(--line);
+    background:var(--panel);
+  }
+  #wordmark{font-family:var(--mono); font-size:13px; letter-spacing:.22em; text-transform:uppercase;}
+  #wordmark b{color:var(--accent); font-weight:600;}
+  .tb-sep{width:1px; height:20px; background:var(--line);}
+  .tb-label{color:var(--ink-faint); font-size:11px; text-transform:uppercase; letter-spacing:.08em;}
+  select{
+    background:var(--panel-2); color:var(--ink); border:1px solid var(--line);
+    border-radius:var(--radius); padding:4px 8px; font-size:12px;
+  }
+  #canvas-size-note{font-family:var(--mono); font-size:11px; color:var(--ink-dim);}
+  #topbar .spacer{flex:1;}
+  .btn{
+    border:1px solid var(--line); border-radius:var(--radius);
+    padding:5px 12px; font-size:12px; background:var(--panel-2); color:var(--ink);
+  }
+  .btn:hover{border-color:var(--ink-faint);}
+  .btn.primary{background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:600;}
+  .btn.primary:hover{filter:brightness(1.08);}
+  .btn:disabled{opacity:.45; cursor:default;}
+
+  /* ---------- main split ---------- */
+  #main{flex:1; display:flex; min-height:0;}
+
+  /* library */
+  #library{
+    width:228px; flex:0 0 228px; border-right:1px solid var(--line);
+    background:var(--panel); display:flex; flex-direction:column; min-height:0;
+  }
+  .panel-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 12px 8px;
+    font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--ink-dim);
+  }
+  #add-media-btn{
+    color:var(--accent); font-size:12px; letter-spacing:0; text-transform:none;
+  }
+  #add-media-btn:hover{text-decoration:underline;}
+  #library-list{flex:1; overflow-y:auto; padding:0 10px 10px; display:flex; flex-direction:column; gap:8px;}
+  #library-empty{
+    margin:8px 2px; padding:18px 12px; border:1px dashed var(--line);
+    border-radius:var(--radius); color:var(--ink-faint); font-size:12px; line-height:1.5; text-align:center;
+  }
+  .lib-item{
+    border:1px solid var(--line-soft); border-radius:var(--radius);
+    background:var(--panel-2); overflow:hidden; cursor:grab; position:relative;
+    user-select:none; -webkit-user-select:none; touch-action:none;
+  }
+  .lib-item:active{cursor:grabbing;}
+  .lib-thumb{
+    width:100%; height:96px; background:#0b0c0e center/cover no-repeat;
+    display:flex; align-items:center; justify-content:center; pointer-events:none;
+  }
+  .lib-thumb svg{width:30px; height:30px; stroke:var(--ink-dim);}
+  .lib-meta{padding:6px 8px; display:flex; align-items:baseline; gap:6px; pointer-events:none;}
+  .lib-name{flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:12px;}
+  .lib-dur{font-family:var(--mono); font-size:10px; color:var(--ink-dim);}
+  .lib-kind{
+    position:absolute; top:6px; left:6px; font-family:var(--mono); font-size:9px;
+    letter-spacing:.08em; padding:2px 5px; border-radius:3px; background:rgba(10,10,12,.78); color:var(--ink-dim);
+    text-transform:uppercase; pointer-events:none;
+  }
+  .lib-del{
+    position:absolute; top:4px; right:4px; width:20px; height:20px; border-radius:3px;
+    background:rgba(10,10,12,.78); color:var(--ink-dim); font-size:13px; line-height:1;
+    display:none; align-items:center; justify-content:center;
+  }
+  .lib-item:hover .lib-del{display:flex;}
+  .lib-del:hover{color:var(--danger);}
+
+  /* preview column */
+  #preview-col{flex:1; display:flex; flex-direction:column; min-width:0; background:var(--bg);}
+  #stage-wrap{flex:1; min-height:0; position:relative; display:flex; align-items:center; justify-content:center; padding:18px;}
+  #stage{position:relative; box-shadow:0 0 0 1px var(--line), 0 18px 50px rgba(0,0,0,.5);}
+  #preview-canvas, #overlay-canvas{position:absolute; inset:0; width:100%; height:100%; display:block;}
+  #preview-canvas{background:#000; position:static;}
+  #overlay-canvas{
+    touch-action:none; cursor:default;
+    /* extends beyond the stage so selection handles stay visible/grabbable at the edges */
+    inset:auto; left:-60px; top:-60px;
+    width:calc(100% + 120px); height:calc(100% + 120px);
+  }
+
+  /* transport */
+  #transport{
+    flex:0 0 44px; display:flex; align-items:center; gap:12px;
+    padding:0 16px; border-top:1px solid var(--line); background:var(--panel);
+  }
+  #play-btn{
+    width:30px; height:30px; border-radius:50%; border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center; background:var(--panel-2);
+  }
+  #play-btn:hover{border-color:var(--accent);}
+  #play-btn svg{width:12px; height:12px; fill:var(--ink);}
+  #timecode{font-family:var(--mono); font-size:13px; color:var(--ink); min-width:170px;}
+  #timecode .total{color:var(--ink-faint);}
+  #scrubber{flex:1; -webkit-appearance:none; appearance:none; height:4px; border-radius:2px; background:var(--line); cursor:pointer;}
+  #scrubber::-webkit-slider-thumb{
+    -webkit-appearance:none; width:12px; height:12px; border-radius:50%;
+    background:var(--accent); border:none; margin-top:0;
+  }
+  #scrubber::-moz-range-thumb{width:12px; height:12px; border-radius:50%; background:var(--accent); border:none;}
+
+  /* ---------- timeline ---------- */
+  #timeline-panel{
+    flex:0 0 252px; border-top:1px solid var(--line); background:var(--panel);
+    display:flex; flex-direction:column; min-height:0;
+  }
+  #tl-toolbar{
+    display:flex; align-items:center; gap:12px; padding:6px 12px;
+    border-bottom:1px solid var(--line-soft); font-size:11px; color:var(--ink-dim);
+  }
+  #tl-toolbar .spacer{flex:1;}
+  #zoom-slider{width:120px; accent-color:var(--accent);}
+  #tl-scroll{flex:1; overflow:auto; position:relative;}
+  #tl-inner{position:relative; min-width:100%;}
+  #ruler{
+    position:sticky; top:0; z-index:5; height:24px; background:var(--panel-2);
+    border-bottom:1px solid var(--line); cursor:ew-resize; overflow:hidden;
+  }
+  .ruler-tick{position:absolute; bottom:0; width:1px; background:var(--line);}
+  .ruler-tick.major{height:10px; background:var(--ink-faint);}
+  .ruler-tick.minor{height:5px;}
+  .ruler-num{
+    position:absolute; top:3px; transform:translateX(3px);
+    font-family:var(--mono); font-size:9px; color:var(--ink-dim); pointer-events:none;
+  }
+  .track-row{display:flex; height:52px; border-bottom:1px solid var(--line-soft); position:relative;}
+  .track-row.audio{height:44px; background:rgba(84,64,46,.05);}
+  .track-label{
+    position:sticky; left:0; z-index:4; width:64px; flex:0 0 64px;
+    display:flex; align-items:center; justify-content:center; gap:4px;
+    background:var(--panel); border-right:1px solid var(--line);
+    font-family:var(--mono); font-size:10px; color:var(--ink-dim); letter-spacing:.06em;
+  }
+  .track-lane{position:relative; flex:1;}
+  .track-lane.drop-ok{background:rgba(232,179,90,.06);}
+  .track-lane.drop-bad{background:rgba(200,88,74,.08);}
+  .clip{
+    position:absolute; top:6px; bottom:6px; border-radius:var(--radius);
+    border:1px solid rgba(255,255,255,.12); overflow:hidden; cursor:grab;
+    user-select:none; -webkit-user-select:none; touch-action:none;
+    display:flex; align-items:center; padding:0 10px; font-size:11px;
+    background:var(--clip-img); color:rgba(255,255,255,.85);
+  }
+  .clip.video{background:var(--clip-vid);}
+  .clip.audio{background:var(--clip-aud);}
+  .clip .clip-name{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; pointer-events:none;}
+  .clip.selected{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent);}
+  .clip.rejected{animation:shake .25s linear; border-color:var(--danger); box-shadow:0 0 0 1px var(--danger);}
+  @keyframes shake{25%{transform:translateX(-3px);}75%{transform:translateX(3px);}}
+  .clip-handle{
+    position:absolute; top:0; bottom:0; width:8px; cursor:ew-resize; z-index:2;
+  }
+  .clip-handle.l{left:0; border-left:3px solid rgba(255,255,255,.25);}
+  .clip-handle.r{right:0; border-right:3px solid rgba(255,255,255,.25);}
+  .clip:hover .clip-handle.l, .clip:hover .clip-handle.r{border-color:rgba(255,255,255,.55);}
+  #playhead{
+    position:absolute; top:0; bottom:0; width:1px; background:var(--accent); z-index:6; pointer-events:none;
+  }
+  #playhead::before{
+    content:""; position:absolute; top:0; left:-5px;
+    border:5px solid transparent; border-top:7px solid var(--accent); border-bottom:none;
+  }
+  #snap-guide{position:absolute; top:0; bottom:0; width:1px; background:var(--ink); opacity:.6; z-index:6; display:none; pointer-events:none;}
+
+  /* drag ghost */
+  #drag-ghost{
+    position:fixed; z-index:50; pointer-events:none; display:none;
+    padding:4px 10px; border-radius:var(--radius); font-size:11px;
+    background:var(--accent); color:var(--accent-ink); box-shadow:0 4px 14px rgba(0,0,0,.5);
+  }
+
+  /* toasts */
+  #toasts{position:fixed; bottom:270px; left:50%; transform:translateX(-50%); z-index:60; display:flex; flex-direction:column; gap:6px; align-items:center;}
+  .toast{
+    background:var(--panel-2); border:1px solid var(--line); color:var(--ink);
+    padding:7px 14px; border-radius:var(--radius); font-size:12px;
+    box-shadow:0 6px 18px rgba(0,0,0,.45); animation:toast-in .18s ease-out;
+  }
+  .toast.warn{border-color:var(--danger);}
+  @keyframes toast-in{from{opacity:0; transform:translateY(6px);}to{opacity:1;}}
+
+  /* export modal */
+  #export-modal{
+    position:fixed; inset:0; z-index:80; display:none;
+    align-items:center; justify-content:center; background:rgba(8,9,11,.72);
+  }
+  #export-modal.open{display:flex;}
+  #export-card{
+    width:380px; background:var(--panel); border:1px solid var(--line);
+    border-radius:6px; padding:20px;
+  }
+  #export-card h2{font-size:13px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; margin-bottom:4px;}
+  #export-sub{font-size:12px; color:var(--ink-dim); line-height:1.5; margin-bottom:14px;}
+  #export-bar{height:6px; border-radius:3px; background:var(--line); overflow:hidden; margin-bottom:8px;}
+  #export-fill{height:100%; width:0%; background:var(--accent); transition:width .12s linear;}
+  #export-stats{font-family:var(--mono); font-size:11px; color:var(--ink-dim); margin-bottom:16px;}
+  #export-actions{display:flex; justify-content:flex-end; gap:8px;}
+
+  /* desktop default: mobile-only chrome hidden */
+  #mobile-lib-btn, #lib-sheet-hint, #lib-backdrop{display:none;}
+
+  /* ---------- mobile / narrow layout ---------- */
+  @media (max-width: 820px){
+    #topbar{gap:8px; padding:0 10px; height:44px; flex:0 0 44px;}
+    #topbar .tb-sep, #topbar .tb-label, #canvas-size-note{display:none;}
+    #wordmark{font-size:11px; letter-spacing:.16em;}
+    select{padding:4px 6px; font-size:12px; max-width:150px;}
+    .btn{padding:7px 12px;}                 /* taller tap targets */
+    #mobile-lib-btn{display:inline-block;}
+
+    /* stage on top, timeline below, full width */
+    #main{flex-direction:column;}
+    #preview-col{flex:1 1 auto; min-height:0;}
+    #stage-wrap{padding:10px;}
+    #transport{flex:0 0 52px; gap:10px; padding:0 12px;}
+    #play-btn{width:40px; height:40px;}
+    #play-btn svg{width:15px; height:15px;}
+    #timecode{font-size:12px; min-width:0;}
+
+    #timeline-panel{flex:0 0 44vh; max-height:46vh;}
+    #tl-toolbar{padding:8px 12px; gap:10px; flex-wrap:wrap;}
+    #zoom-slider{width:90px;}
+
+    /* library becomes a bottom sheet */
+    #library{
+      position:fixed; left:0; right:0; bottom:0; width:auto; flex:none;
+      max-height:62vh; border-right:none; border-top:1px solid var(--line);
+      border-radius:12px 12px 0 0; z-index:70;
+      transform:translateY(100%); transition:transform .22s ease;
+      box-shadow:0 -10px 40px rgba(0,0,0,.5);
+    }
+    #library.open{transform:translateY(0);}
+    #lib-sheet-hint{
+      display:block; padding:0 12px 8px; color:var(--ink-faint);
+      font-size:11px; border-bottom:1px solid var(--line-soft); margin-bottom:6px;
+    }
+    #library-list{
+      display:grid; grid-template-columns:repeat(auto-fill, minmax(120px, 1fr));
+      gap:10px; padding:10px 12px calc(12px + env(safe-area-inset-bottom));
+    }
+    .lib-del{display:flex;}                  /* no hover on touch — always show remove */
+    #lib-backdrop{
+      display:block; position:fixed; inset:0; z-index:69; background:rgba(6,7,9,.5);
+      opacity:0; pointer-events:none; transition:opacity .22s ease;
+    }
+    #lib-backdrop.open{opacity:1; pointer-events:auto;}
+
+    #export-card{width:calc(100vw - 32px); max-width:380px;}
+    #toasts{bottom:calc(46vh + 16px);}
+  }
+
+  /* fatter trim handles wherever the pointer is coarse (touch) */
+  @media (pointer: coarse){
+    .clip-handle{width:22px;}
+    #scrubber{height:8px;}
+    #scrubber::-webkit-slider-thumb{width:20px; height:20px;}
+    #scrubber::-moz-range-thumb{width:20px; height:20px;}
+    #zoom-slider{height:8px;}
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{animation:none !important; transition:none !important;}
+  }
+</style>
+</head>
+<body>
+
+<header id="topbar">
+  <span id="wordmark"><b>STRIP</b> / editor</span>
+  <span class="tb-sep"></span>
+  <span class="tb-label">Canvas</span>
+  <select id="size-preset" title="Canvas size">
+    <option value="1920x1080">Landscape · 1920×1080</option>
+    <option value="1080x1920">Portrait · 1080×1920</option>
+    <option value="1080x1080">Square · 1080×1080</option>
+  </select>
+  <span id="canvas-size-note"></span>
+  <span class="spacer"></span>
+  <button class="btn" id="mobile-lib-btn" title="Media library">Media</button>
+  <button class="btn primary" id="export-btn" disabled>Export MP4</button>
+</header>
+
+<div id="main">
+  <aside id="library">
+    <div class="panel-head">
+      <span>Media library</span>
+      <button id="add-media-btn" title="Add media files">+ Add</button>
+    </div>
+    <div id="lib-sheet-hint">Tap an item to add it at the playhead.</div>
+    <input type="file" id="file-input" accept=".mp4,.wav,.png,.jpg,.jpeg,video/mp4,audio/wav,image/png,image/jpeg" multiple hidden>
+    <div id="library-list">
+      <div id="library-empty">Drop MP4, WAV, PNG or JPG files anywhere in the window, or use “+ Add”. Drag items from here onto the timeline.</div>
+    </div>
+  </aside>
+
+  <section id="preview-col">
+    <div id="stage-wrap">
+      <div id="stage">
+        <canvas id="preview-canvas"></canvas>
+        <canvas id="overlay-canvas"></canvas>
+      </div>
+    </div>
+    <div id="transport">
+      <button id="play-btn" title="Play / pause (Space)">
+        <svg id="play-icon" viewBox="0 0 12 12"><path d="M2 1l9 5-9 5z"/></svg>
+        <svg id="pause-icon" viewBox="0 0 12 12" style="display:none"><path d="M2 1h3v10H2zM7 1h3v10H7z"/></svg>
+      </button>
+      <span id="timecode">00:00.00 <span class="total">/ 00:00.00</span></span>
+      <input type="range" id="scrubber" min="0" max="0" step="0.001" value="0">
+    </div>
+  </section>
+</div>
+
+<div id="timeline-panel">
+  <div id="tl-toolbar">
+    <span>Timeline</span>
+    <button class="btn" id="add-track-btn" style="padding:2px 8px; font-size:11px;">+ Video track</button>
+    <button class="btn" id="del-clip-btn" style="padding:2px 8px; font-size:11px;" disabled>Delete clip</button>
+    <span class="spacer"></span>
+    <span>Zoom</span>
+    <input type="range" id="zoom-slider" min="12" max="300" value="60">
+  </div>
+  <div id="tl-scroll">
+    <div id="tl-inner">
+      <div id="ruler"></div>
+      <div id="tracks-host"></div>
+      <div id="playhead"></div>
+      <div id="snap-guide"></div>
+    </div>
+  </div>
+</div>
+
+<div id="lib-backdrop"></div>
+<div id="drag-ghost"></div>
+<div id="toasts"></div>
+
+<div id="export-modal">
+  <div id="export-card">
+    <h2 id="export-title">Exporting MP4</h2>
+    <p id="export-sub">Rendering at 60 fps. Long or high-resolution timelines take a while — keep this tab open.</p>
+    <div id="export-bar"><div id="export-fill"></div></div>
+    <div id="export-stats">preparing…</div>
+    <div id="export-actions">
+      <button class="btn" id="export-cancel">Cancel</button>
+      <button class="btn primary" id="export-done" style="display:none">Close</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5/build/mp4-muxer.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mp4box@0.5/dist/mp4box.all.min.js"></script>
+<script>
+"use strict";
+/* =====================================================================
+   STRIP — lightweight browser video editor
+   Single-file, client-side. Core principle: one pure compositing
+   function, renderFrameAt(t, ctx, frameSource), shared by preview
+   (rAF clock) and export (deterministic frame loop).
+   ===================================================================== */
+
+/* ---------------- utilities ---------------- */
+const $ = (sel) => document.querySelector(sel);
+let _uid = 0;
+const uid = (p) => p + (++_uid) + "_" + Math.random().toString(36).slice(2, 7);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function fmtTime(s, frames) {
+  s = Math.max(0, s);
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  const sub = frames ? Math.floor((s % 1) * 60) : Math.floor((s % 1) * 100);
+  return String(m).padStart(2, "0") + ":" + String(sec).padStart(2, "0") + "." + String(sub).padStart(2, "0");
+}
+
+function toast(msg, warn) {
+  const el = document.createElement("div");
+  el.className = "toast" + (warn ? " warn" : "");
+  el.textContent = msg;
+  $("#toasts").appendChild(el);
+  setTimeout(() => { el.style.opacity = "0"; el.style.transition = "opacity .3s"; }, 3400);
+  setTimeout(() => el.remove(), 3800);
+}
+
+/* ---------------- state ---------------- */
+const project = {
+  width: 1920,
+  height: 1080,
+  fps: 60,
+  sizeLockedToVideo: false, // first uploaded video overrides the preset
+};
+
+const mediaLibrary = []; // {id, type, name, url, file, duration, width, height, image, videoEl, audioEl, thumb}
+
+const tracks = [
+  // visual tracks: array index = z-order (higher index renders ON TOP)
+  { id: uid("trk"), type: "visual", clips: [] }, // V1 (bottom)
+  { id: uid("trk"), type: "visual", clips: [] }, // V2
+  { id: uid("trk"), type: "visual", clips: [] }, // V3 (top)
+  // exactly one audio track; its clips never overlap in time
+  { id: uid("trk"), type: "audio", clips: [] },
+];
+
+let playhead = 0;          // seconds
+let playing = false;
+let selection = null;      // { trackId, clipId }
+let pxPerSec = 60;         // timeline zoom
+
+const visualTracks = () => tracks.filter((t) => t.type === "visual");
+const audioTrack = () => tracks.find((t) => t.type === "audio");
+const mediaById = (id) => mediaLibrary.find((m) => m.id === id);
+
+function timelineDuration() {
+  let end = 0;
+  for (const t of tracks)
+    for (const c of t.clips) end = Math.max(end, c.startTime + c.duration);
+  return end;
+}
+
+function findClip(clipId) {
+  for (const t of tracks) {
+    const c = t.clips.find((c) => c.id === clipId);
+    if (c) return { track: t, clip: c };
+  }
+  return null;
+}
+
+function selectedClip() {
+  return selection ? findClip(selection.clipId) : null;
+}
+
+function hasAnyWork() {
+  return mediaLibrary.length > 0 || tracks.some((t) => t.clips.length > 0);
+}
+
+/* ---------------- media ingestion ---------------- */
+const ACCEPTED = {
+  "video/mp4": "video",
+  "image/png": "image",
+  "image/jpeg": "image",
+  "audio/wav": "audio",
+  "audio/x-wav": "audio",
+  "audio/wave": "audio",
+};
+
+function typeForFile(file) {
+  if (ACCEPTED[file.type]) return ACCEPTED[file.type];
+  const ext = file.name.split(".").pop().toLowerCase();
+  return { mp4: "video", png: "image", jpg: "image", jpeg: "image", wav: "audio" }[ext] || null;
+}
+
+async function addFiles(fileList) {
+  for (const file of fileList) {
+    const type = typeForFile(file);
+    if (!type) { toast(`“${file.name}” skipped — only MP4, WAV, PNG, JPG are supported.`, true); continue; }
+    try {
+      const item = await ingestFile(file, type);
+      mediaLibrary.push(item);
+      renderLibrary();
+      if (type === "video" && !project.sizeLockedToVideo) lockCanvasToVideo(item);
+    } catch (err) {
+      console.error(err);
+      toast(`Couldn't read “${file.name}”. The file may be corrupt or unsupported.`, true);
+    }
+  }
+  updateExportEnabled();
+  if (COARSE_POINTER && mediaLibrary.length) openLibrarySheet();
+}
+
+function ingestFile(file, type) {
+  const url = URL.createObjectURL(file);
+  const id = uid("med");
+  if (type === "image") {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve({
+        id, type, name: file.name, url, file,
+        width: img.naturalWidth, height: img.naturalHeight,
+        image: img, thumb: url,
+      });
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("image decode failed")); };
+      img.src = url;
+    });
+  }
+  if (type === "video") {
+    return new Promise((resolve, reject) => {
+      const v = document.createElement("video");
+      v.muted = false;                // video clips carry their own audio in preview
+      v.volume = 1;
+      v.playsInline = true;
+      v.preload = "auto";
+      v.crossOrigin = "anonymous";
+      let settled = false;
+      const fail = () => { if (!settled) { settled = true; URL.revokeObjectURL(url); reject(new Error("video decode failed")); } };
+      v.onerror = fail;
+      v.onloadeddata = () => {
+        // capture first frame for the thumbnail
+        const grab = () => {
+          if (settled) return;
+          settled = true;
+          let thumb = null;
+          try {
+            const c = document.createElement("canvas");
+            const s = 180 / Math.max(1, v.videoWidth);
+            c.width = Math.max(2, Math.round(v.videoWidth * s));
+            c.height = Math.max(2, Math.round(v.videoHeight * s));
+            c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+            thumb = c.toDataURL("image/jpeg", 0.7);
+          } catch (e) { /* tainted or decode issue — fall back to icon */ }
+          resolve({
+            id, type, name: file.name, url, file,
+            duration: v.duration && isFinite(v.duration) ? v.duration : 0,
+            width: v.videoWidth, height: v.videoHeight,
+            videoEl: v, thumb,
+          });
+        };
+        if (v.currentTime > 0) grab();
+        else {
+          v.onseeked = grab;
+          try { v.currentTime = 0.001; } catch (e) { grab(); }
+          setTimeout(grab, 1500); // safety net if 'seeked' never fires
+        }
+      };
+      v.src = url;
+    });
+  }
+  // audio
+  return new Promise((resolve, reject) => {
+    const a = new Audio();
+    a.preload = "metadata";
+    a.onerror = () => { URL.revokeObjectURL(url); reject(new Error("audio decode failed")); };
+    a.onloadedmetadata = () => resolve({
+      id, type, name: file.name, url, file,
+      duration: a.duration && isFinite(a.duration) ? a.duration : 0,
+      audioEl: a, thumb: null,
+    });
+    a.src = url;
+  });
+}
+
+function removeMedia(id) {
+  const idx = mediaLibrary.findIndex((m) => m.id === id);
+  if (idx < 0) return;
+  const item = mediaLibrary[idx];
+  // remove all clips that reference this media
+  let removedClips = 0;
+  for (const t of tracks) {
+    const before = t.clips.length;
+    t.clips = t.clips.filter((c) => c.mediaId !== id);
+    removedClips += before - t.clips.length;
+  }
+  if (selection && !findClip(selection.clipId)) selection = null;
+  if (item.videoEl) { item.videoEl.pause(); item.videoEl.removeAttribute("src"); item.videoEl.load(); }
+  if (item.audioEl) { item.audioEl.pause(); item.audioEl.removeAttribute("src"); item.audioEl.load(); }
+  URL.revokeObjectURL(item.url); // avoid leaking object URLs
+  mediaLibrary.splice(idx, 1);
+  renderLibrary();
+  renderTimeline();
+  updateExportEnabled();
+  if (removedClips) toast(`Removed “${item.name}” and ${removedClips} clip${removedClips > 1 ? "s" : ""} using it.`);
+}
+
+function lockCanvasToVideo(item) {
+  if (!item.width || !item.height) return;
+  // h.264 needs even dimensions — round down so export never fails on odd sizes
+  project.width = Math.max(2, item.width - (item.width % 2));
+  project.height = Math.max(2, item.height - (item.height % 2));
+  project.sizeLockedToVideo = true;
+  $("#size-preset").value = "";
+  $("#canvas-size-note").textContent = `${project.width}×${project.height} — matched to “${item.name}”`;
+  toast(`Canvas set to ${project.width}×${project.height} to match the uploaded video.`);
+  resizeStage();
+}
+
+/* ---------------- library UI ---------------- */
+const ICONS = {
+  audio: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg>',
+  video: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="2" y="5" width="14" height="14" rx="2"/><path d="M16 10l6-3v10l-6-3z"/></svg>',
+};
+
+function renderLibrary() {
+  const host = $("#library-list");
+  host.innerHTML = "";
+  if (!mediaLibrary.length) {
+    const empty = document.createElement("div");
+    empty.id = "library-empty";
+    empty.textContent = "Drop MP4, WAV, PNG or JPG files anywhere in the window, or use “+ Add”. Drag items from here onto the timeline.";
+    host.appendChild(empty);
+    return;
+  }
+  for (const m of mediaLibrary) {
+    const el = document.createElement("div");
+    el.className = "lib-item";
+    el.dataset.mediaId = m.id;
+
+    const thumb = document.createElement("div");
+    thumb.className = "lib-thumb";
+    if (m.thumb) thumb.style.backgroundImage = `url("${m.thumb}")`;
+    else thumb.innerHTML = ICONS[m.type] || ICONS.video;
+    el.appendChild(thumb);
+
+    const kind = document.createElement("span");
+    kind.className = "lib-kind";
+    kind.textContent = m.type;
+    el.appendChild(kind);
+
+    const del = document.createElement("button");
+    del.className = "lib-del";
+    del.title = "Remove from library";
+    del.textContent = "✕";
+    del.addEventListener("pointerdown", (e) => e.stopPropagation());
+    del.addEventListener("click", (e) => { e.stopPropagation(); removeMedia(m.id); });
+    el.appendChild(del);
+
+    const meta = document.createElement("div");
+    meta.className = "lib-meta";
+    const name = document.createElement("span");
+    name.className = "lib-name";
+    name.textContent = m.name;
+    name.title = m.name;
+    meta.appendChild(name);
+    if (m.duration) {
+      const d = document.createElement("span");
+      d.className = "lib-dur";
+      d.textContent = fmtTime(m.duration);
+      meta.appendChild(d);
+    }
+    el.appendChild(meta);
+
+    el.addEventListener("pointerdown", (e) => {
+      if (COARSE_POINTER) {
+        e.preventDefault();
+        addClipAtPlayhead(m);
+        closeLibrarySheet();
+      } else {
+        startLibraryDrag(e, m);
+      }
+    });
+    host.appendChild(el);
+  }
+}
+
+/* file picker + drop-anywhere */
+$("#add-media-btn").addEventListener("click", () => $("#file-input").click());
+$("#file-input").addEventListener("change", (e) => { addFiles([...e.target.files]); e.target.value = ""; });
+window.addEventListener("dragover", (e) => { e.preventDefault(); });
+window.addEventListener("drop", (e) => {
+  e.preventDefault();
+  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) addFiles([...e.dataTransfer.files]);
+});
+
+/* mobile library bottom sheet */
+function openLibrarySheet() {
+  $("#library").classList.add("open");
+  $("#lib-backdrop").classList.add("open");
+}
+function closeLibrarySheet() {
+  $("#library").classList.remove("open");
+  $("#lib-backdrop").classList.remove("open");
+}
+$("#mobile-lib-btn").addEventListener("click", () => {
+  const open = $("#library").classList.contains("open");
+  if (open) closeLibrarySheet(); else openLibrarySheet();
+});
+$("#lib-backdrop").addEventListener("click", closeLibrarySheet);
+</script>
+<script>
+"use strict";
+/* =====================================================================
+   TIMELINE — tracks, clips, ruler, playhead, drag / trim / snap
+   ===================================================================== */
+
+const TRACK_LABEL_W = 64;
+const SNAP_PX = 7;
+
+const tlScroll = $("#tl-scroll");
+const tlInner = $("#tl-inner");
+const tracksHost = $("#tracks-host");
+const rulerEl = $("#ruler");
+const playheadEl = $("#playhead");
+const snapGuideEl = $("#snap-guide");
+
+function timelineContentWidth() {
+  const need = (timelineDuration() + 12) * pxPerSec + TRACK_LABEL_W;
+  return Math.max(need, tlScroll.clientWidth);
+}
+
+const timeToX = (t) => TRACK_LABEL_W + t * pxPerSec;
+const xToTime = (x) => Math.max(0, (x - TRACK_LABEL_W) / pxPerSec);
+
+/* ---- audio exclusivity: no two audio clips may ever overlap ---- */
+function audioOverlaps(start, duration, ignoreClipId) {
+  const EPS = 1e-6;
+  return audioTrack().clips.some((c) =>
+    c.id !== ignoreClipId &&
+    start < c.startTime + c.duration - EPS &&
+    c.startTime < start + duration - EPS
+  );
+}
+
+/* ---- snapping: neighboring clip edges + playhead ---- */
+function snapTime(t, ignoreClipId) {
+  const candidates = [0, playhead];
+  for (const tr of tracks)
+    for (const c of tr.clips) {
+      if (c.id === ignoreClipId) continue;
+      candidates.push(c.startTime, c.startTime + c.duration);
+    }
+  let best = null, bestDist = SNAP_PX / pxPerSec;
+  for (const cand of candidates) {
+    const d = Math.abs(cand - t);
+    if (d < bestDist) { bestDist = d; best = cand; }
+  }
+  return best; // null = no snap
+}
+
+function showSnapGuide(t) {
+  if (t == null) { snapGuideEl.style.display = "none"; return; }
+  snapGuideEl.style.display = "block";
+  snapGuideEl.style.left = timeToX(t) + "px";
+}
+
+/* ---------------- render ---------------- */
+function renderRuler() {
+  rulerEl.innerHTML = "";
+  const w = timelineContentWidth();
+  rulerEl.style.width = w + "px";
+  // adaptive tick spacing: major every ~>=70px, minors subdivide
+  const steps = [0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60];
+  let major = steps.find((s) => s * pxPerSec >= 70) || 60;
+  const minor = major / 5;
+  const totalSec = (w - TRACK_LABEL_W) / pxPerSec;
+  const frag = document.createDocumentFragment();
+  for (let t = 0; t <= totalSec + minor; t += minor) {
+    const isMajor = Math.abs(t / major - Math.round(t / major)) < 1e-6;
+    const tick = document.createElement("div");
+    tick.className = "ruler-tick " + (isMajor ? "major" : "minor");
+    tick.style.left = timeToX(t) + "px";
+    frag.appendChild(tick);
+    if (isMajor) {
+      const num = document.createElement("span");
+      num.className = "ruler-num";
+      num.style.left = timeToX(t) + "px";
+      num.textContent = fmtTime(t).replace(/\.\d+$/, "");
+      frag.appendChild(num);
+    }
+  }
+  rulerEl.appendChild(frag);
+}
+
+function renderTimeline() {
+  const w = timelineContentWidth();
+  tlInner.style.width = w + "px";
+  renderRuler();
+  tracksHost.innerHTML = "";
+
+  // display top z-order first (like every NLE: top row = top layer)
+  const vis = visualTracks();
+  const displayOrder = [...vis].reverse().concat([audioTrack()]);
+
+  for (const tr of displayOrder) {
+    const row = document.createElement("div");
+    row.className = "track-row" + (tr.type === "audio" ? " audio" : "");
+    row.dataset.trackId = tr.id;
+
+    const label = document.createElement("div");
+    label.className = "track-label";
+    label.textContent = tr.type === "audio" ? "A1" : "V" + (vis.indexOf(tr) + 1);
+    row.appendChild(label);
+
+    const lane = document.createElement("div");
+    lane.className = "track-lane";
+    lane.dataset.trackId = tr.id;
+    lane.style.width = (w - TRACK_LABEL_W) + "px";
+
+    for (const clip of tr.clips) {
+      const m = mediaById(clip.mediaId);
+      const el = document.createElement("div");
+      el.className = "clip " + (m ? m.type : "image");
+      if (selection && selection.clipId === clip.id) el.classList.add("selected");
+      el.dataset.clipId = clip.id;
+      el.style.left = (clip.startTime * pxPerSec) + "px";
+      el.style.width = Math.max(6, clip.duration * pxPerSec) + "px";
+      if (m && m.type !== "audio" && m.thumb) {
+        el.style.backgroundImage = `linear-gradient(rgba(10,12,14,.55), rgba(10,12,14,.55)), url("${m.thumb}")`;
+        el.style.backgroundSize = "auto 100%";
+        el.style.backgroundRepeat = "repeat-x";
+      }
+      const name = document.createElement("span");
+      name.className = "clip-name";
+      name.textContent = m ? m.name : "missing media";
+      el.appendChild(name);
+
+      const hl = document.createElement("div");
+      hl.className = "clip-handle l";
+      const hr = document.createElement("div");
+      hr.className = "clip-handle r";
+      el.appendChild(hl); el.appendChild(hr);
+
+      el.addEventListener("pointerdown", (e) => startClipDrag(e, tr, clip, el));
+      lane.appendChild(el);
+    }
+    row.appendChild(lane);
+    tracksHost.appendChild(row);
+  }
+  updatePlayheadEl();
+  updateExportEnabled();
+}
+
+function updatePlayheadEl() {
+  playheadEl.style.left = timeToX(playhead) + "px";
+  playheadEl.style.height = tlInner.scrollHeight + "px";
+  const dur = timelineDuration();
+  $("#scrubber").max = dur || 0;
+  $("#scrubber").value = playhead;
+  $("#timecode").innerHTML = fmtTime(playhead, true) + ' <span class="total">/ ' + fmtTime(dur, true) + "</span>";
+}
+
+/* ---------------- drag from library onto a track ---------------- */
+const dragGhost = $("#drag-ghost");
+
+function startLibraryDrag(e, media) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  const start = { x: e.clientX, y: e.clientY };
+  let active = false;
+  let hoverLane = null;
+
+  const move = (ev) => {
+    if (!active && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 5) return;
+    if (!active) {
+      active = true;
+      dragGhost.textContent = media.name;
+      dragGhost.style.display = "block";
+    }
+    dragGhost.style.left = (ev.clientX + 10) + "px";
+    dragGhost.style.top = (ev.clientY + 10) + "px";
+
+    const lane = laneAtPoint(ev.clientX, ev.clientY);
+    if (hoverLane && hoverLane !== lane) hoverLane.classList.remove("drop-ok", "drop-bad");
+    hoverLane = lane;
+    if (lane) {
+      const tr = tracks.find((t) => t.id === lane.dataset.trackId);
+      const ok = canDrop(media, tr);
+      lane.classList.toggle("drop-ok", ok);
+      lane.classList.toggle("drop-bad", !ok);
+    }
+  };
+
+  const up = (ev) => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    dragGhost.style.display = "none";
+    if (hoverLane) hoverLane.classList.remove("drop-ok", "drop-bad");
+    if (!active || !hoverLane) return;
+    const tr = tracks.find((t) => t.id === hoverLane.dataset.trackId);
+    if (!canDrop(media, tr)) {
+      toast(media.type === "audio"
+        ? "Audio goes on the A1 track."
+        : "Images and video go on the V tracks.", true);
+      return;
+    }
+    const rect = hoverLane.getBoundingClientRect();
+    let t = Math.max(0, (ev.clientX - rect.left + 0) / pxPerSec);
+    const duration = media.type === "image" ? 5 : (media.duration || 5);
+    const snapped = snapTime(t, null);
+    if (snapped != null) t = snapped;
+    dropNewClip(media, tr, t, duration);
+  };
+
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+}
+
+function laneAtPoint(x, y) {
+  const el = document.elementFromPoint(x, y);
+  return el ? el.closest(".track-lane") : null;
+}
+
+/* Touch flow: tap a library item to drop it at the playhead (dragging from a
+   bottom sheet is the interaction we're avoiding on mobile). */
+function addClipAtPlayhead(media) {
+  let start = Math.max(0, playhead);
+  const dur = media.type === "image" ? 5 : (media.duration || 5);
+  let track;
+  if (media.type === "audio") {
+    track = audioTrack();
+    if (audioOverlaps(start, dur, null)) {
+      // park it just after the last audio clip instead of rejecting the tap
+      const end = track.clips.reduce((mx, c) => Math.max(mx, c.startTime + c.duration), 0);
+      start = end;
+    }
+  } else {
+    const vis = visualTracks();
+    track = vis[vis.length - 1]; // topmost visible layer
+  }
+  const clip = dropNewClip(media, track, start, dur);
+  if (clip) {
+    seek(start);
+    toast(`Added “${media.name}”.`);
+  }
+  return clip;
+}
+
+function canDrop(media, track) {
+  if (!track) return false;
+  if (media.type === "audio") return track.type === "audio";
+  return track.type === "visual";
+}
+
+function dropNewClip(media, track, startTime, duration) {
+  if (duration == null) duration = media.type === "image" ? 5 : (media.duration || 5);
+  if (track.type === "audio" && audioOverlaps(startTime, duration, null)) {
+    // single-active-audio rule: reject overlapping drops outright
+    toast("Only one audio clip can play at a time — that spot overlaps another clip.", true);
+    return null;
+  }
+  const clip = {
+    id: uid("clip"),
+    mediaId: media.id,
+    startTime,
+    duration,
+    sourceStart: 0,
+  };
+  if (track.type === "visual") {
+    // default placement: cover (fill canvas, crop overflow, centered)
+    const cover = Math.max(project.width / (media.width || project.width),
+                           project.height / (media.height || project.height));
+    clip.x = project.width / 2;
+    clip.y = project.height / 2;
+    clip.scale = cover;
+    clip.rotation = 0; // radians
+  }
+  track.clips.push(clip);
+  selection = { trackId: track.id, clipId: clip.id };
+  renderTimeline();
+  requestPreviewRedraw();
+  return clip;
+}
+
+/* ---------------- move / trim existing clips ---------------- */
+function startClipDrag(e, track, clip, el) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  selection = { trackId: track.id, clipId: clip.id };
+  renderTimeline();
+  requestPreviewRedraw();
+  el = tracksHost.querySelector(`.clip[data-clip-id="${clip.id}"]`); // re-grab after rerender
+  if (!el) return;
+
+  const media = mediaById(clip.mediaId);
+  const mode = e.target.classList.contains("clip-handle")
+    ? (e.target.classList.contains("l") ? "trim-l" : "trim-r")
+    : "move";
+  const startX = e.clientX, startY = e.clientY;
+  const orig = { startTime: clip.startTime, duration: clip.duration, sourceStart: clip.sourceStart };
+  const origTrack = track;
+  let moved = false;
+
+  const maxSourceDur = media && media.duration ? media.duration : Infinity; // images: unbounded
+
+  const move = (ev) => {
+    const dx = (ev.clientX - startX) / pxPerSec;
+    if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) > 2) moved = true;
+    let snapShown = null;
+
+    if (mode === "move") {
+      let t = Math.max(0, orig.startTime + dx);
+      const sStart = snapTime(t, clip.id);
+      const sEnd = snapTime(t + clip.duration, clip.id);
+      if (sStart != null) { t = sStart; snapShown = sStart; }
+      else if (sEnd != null) { t = Math.max(0, sEnd - clip.duration); snapShown = sEnd; }
+      clip.startTime = t;
+
+      // allow re-parenting between visual tracks while dragging vertically
+      if (origTrack.type === "visual") {
+        const lane = laneAtPoint(ev.clientX, ev.clientY);
+        if (lane) {
+          const target = tracks.find((tt) => tt.id === lane.dataset.trackId);
+          if (target && target.type === "visual" && target !== currentTrackOf(clip)) {
+            moveClipToTrack(clip, target);
+          }
+        }
+      }
+    } else if (mode === "trim-l") {
+      let newStart = orig.startTime + dx;
+      const snapped = snapTime(newStart, clip.id);
+      if (snapped != null) { newStart = snapped; snapShown = snapped; }
+      const maxStart = orig.startTime + orig.duration - 0.05;
+      // for video/audio the in-point can't go before the source's beginning
+      const minStart = media && media.type !== "image"
+        ? orig.startTime - orig.sourceStart
+        : 0;
+      newStart = clamp(newStart, Math.max(0, minStart), maxStart);
+      const delta = newStart - orig.startTime;
+      clip.startTime = newStart;
+      clip.duration = orig.duration - delta;
+      if (media && media.type !== "image") clip.sourceStart = orig.sourceStart + delta;
+    } else { // trim-r
+      let newEnd = orig.startTime + orig.duration + dx;
+      const snapped = snapTime(newEnd, clip.id);
+      if (snapped != null) { newEnd = snapped; snapShown = snapped; }
+      let newDur = Math.max(0.05, newEnd - orig.startTime);
+      if (media && media.type !== "image")
+        newDur = Math.min(newDur, maxSourceDur - clip.sourceStart); // can't extend past the source
+      clip.duration = newDur;
+    }
+    showSnapGuide(snapShown);
+    renderTimeline();
+    requestPreviewRedraw();
+  };
+
+  const up = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    showSnapGuide(null);
+    const tr = currentTrackOf(clip);
+    if (tr && tr.type === "audio" && audioOverlaps(clip.startTime, clip.duration, clip.id)) {
+      // rule enforcement on move/trim too: revert and flash
+      clip.startTime = orig.startTime;
+      clip.duration = orig.duration;
+      clip.sourceStart = orig.sourceStart;
+      renderTimeline();
+      const elNow = tracksHost.querySelector(`.clip[data-clip-id="${clip.id}"]`);
+      if (elNow) elNow.classList.add("rejected");
+      toast("Audio clips can't overlap — move reverted.", true);
+    }
+    if (moved) requestPreviewRedraw();
+  };
+
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+}
+
+function currentTrackOf(clip) {
+  return tracks.find((t) => t.clips.includes(clip));
+}
+
+function moveClipToTrack(clip, target) {
+  const from = currentTrackOf(clip);
+  if (!from || from === target) return;
+  from.clips.splice(from.clips.indexOf(clip), 1);
+  target.clips.push(clip);
+  selection = { trackId: target.id, clipId: clip.id };
+}
+
+function deleteSelectedClip() {
+  const sel = selectedClip();
+  if (!sel) return;
+  sel.track.clips.splice(sel.track.clips.indexOf(sel.clip), 1);
+  selection = null;
+  renderTimeline();
+  requestPreviewRedraw();
+}
+
+/* ---------------- ruler scrub + playhead ---------------- */
+function scrubToClientX(clientX) {
+  const rect = tlInner.getBoundingClientRect();
+  seek(xToTime(clientX - rect.left));
+}
+rulerEl.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  scrubToClientX(e.clientX);
+  const move = (ev) => scrubToClientX(ev.clientX);
+  const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+});
+
+/* clicking empty lane space clears selection */
+tracksHost.addEventListener("pointerdown", (e) => {
+  if (e.target.classList.contains("track-lane")) {
+    selection = null;
+    renderTimeline();
+    requestPreviewRedraw();
+  }
+});
+
+/* zoom */
+$("#zoom-slider").addEventListener("input", (e) => {
+  const mid = xToTime(tlScroll.scrollLeft + tlScroll.clientWidth / 2);
+  pxPerSec = +e.target.value;
+  renderTimeline();
+  tlScroll.scrollLeft = timeToX(mid) - tlScroll.clientWidth / 2;
+});
+
+/* add visual track (new top layer) */
+$("#add-track-btn").addEventListener("click", () => {
+  const vis = visualTracks();
+  if (vis.length >= 8) { toast("Eight video tracks is the ceiling for v1.", true); return; }
+  tracks.splice(tracks.indexOf(audioTrack()), 0, { id: uid("trk"), type: "visual", clips: [] });
+  renderTimeline();
+});
+
+$("#del-clip-btn").addEventListener("click", deleteSelectedClip);
+</script>
+<script>
+"use strict";
+/* =====================================================================
+   COMPOSITING + PREVIEW
+   renderFrameAt(t, ctx, frameSource) is the single pure compositor:
+   it knows nothing about playback vs export. frameSource resolves a
+   drawable for video clips (preview: the <video> element; export: a
+   frame-accurate decoded VideoFrame).
+   ===================================================================== */
+
+function activeClipsAt(t, track) {
+  return track.clips.filter((c) => t >= c.startTime && t < c.startTime + c.duration);
+}
+
+function drawableFor(clip, media, frameSource) {
+  if (!media) return null;
+  if (media.type === "image") return media.image;
+  if (media.type === "video") return frameSource ? frameSource(clip, media) : media.videoEl;
+  return null;
+}
+
+/** The one compositing function. Pure w.r.t. (time, track state). */
+function renderFrameAt(t, ctx, frameSource) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, project.width, project.height); // black frame fallback
+  for (const track of visualTracks()) {              // index order = z-order, bottom → top
+    for (const clip of activeClipsAt(t, track)) {
+      const media = mediaById(clip.mediaId);
+      const drawable = drawableFor(clip, media, frameSource);
+      if (!drawable) continue;
+      const w = media.width || project.width;
+      const h = media.height || project.height;
+      ctx.save();
+      ctx.translate(clip.x, clip.y);
+      ctx.rotate(clip.rotation);
+      ctx.scale(clip.scale, clip.scale);
+      try { ctx.drawImage(drawable, -w / 2, -h / 2, w, h); } catch (err) { /* not ready yet */ }
+      ctx.restore();
+    }
+  }
+}
+
+/* ---------------- stage / canvases ---------------- */
+const previewCanvas = $("#preview-canvas");
+const overlayCanvas = $("#overlay-canvas");
+const pctx = previewCanvas.getContext("2d");
+const octx = overlayCanvas.getContext("2d");
+let stageScale = 1; // CSS px per canvas px
+const OVERLAY_PAD_SCREEN = 60; // CSS px of handle headroom around the canvas (matches #overlay-canvas CSS)
+let overlayPad = 0;            // the same headroom in project px
+
+function resizeStage() {
+  previewCanvas.width = project.width;
+  previewCanvas.height = project.height;
+  const wrap = $("#stage-wrap");
+  // leave room for the overlay's overhang so handles never sit under other panels
+  const availW = wrap.clientWidth - (OVERLAY_PAD_SCREEN * 2 + 16);
+  const availH = wrap.clientHeight - (OVERLAY_PAD_SCREEN * 2 + 16);
+  stageScale = Math.min(availW / project.width, availH / project.height, 1);
+  if (!isFinite(stageScale) || stageScale <= 0) stageScale = 0.1;
+  overlayPad = OVERLAY_PAD_SCREEN / stageScale;
+  overlayCanvas.width = Math.round(project.width + overlayPad * 2);
+  overlayCanvas.height = Math.round(project.height + overlayPad * 2);
+  const stage = $("#stage");
+  stage.style.width = Math.round(project.width * stageScale) + "px";
+  stage.style.height = Math.round(project.height * stageScale) + "px";
+  requestPreviewRedraw();
+}
+window.addEventListener("resize", resizeStage);
+
+$("#size-preset").addEventListener("change", (e) => {
+  if (!e.target.value) return;
+  const [w, h] = e.target.value.split("x").map(Number);
+  project.width = w; project.height = h;
+  project.sizeLockedToVideo = true; // explicit user choice wins from here on
+  $("#canvas-size-note").textContent = "";
+  resizeStage();
+});
+
+/* ---------------- playback clock ---------------- */
+let clockWallStart = 0, clockTimeStart = 0;
+let redrawWanted = true;
+const requestPreviewRedraw = () => { redrawWanted = true; };
+
+function seek(t) {
+  playhead = clamp(t, 0, Math.max(0, timelineDuration()));
+  syncMediaElements(true);
+  updatePlayheadEl();
+  requestPreviewRedraw();
+}
+
+// Play a media element, surfacing a browser autoplay block once (instead of failing silently).
+let autoplayWarned = false;
+function tryPlay(el) {
+  const pr = el.play();
+  if (pr && pr.catch) pr.catch((err) => {
+    if (err && err.name === "NotAllowedError" && !autoplayWarned) {
+      autoplayWarned = true;
+      toast("Click the preview once to enable sound — your browser blocks autoplay audio until you interact.", true);
+    }
+  });
+}
+
+function setPlaying(p) {
+  const dur = timelineDuration();
+  if (p && dur === 0) return;
+  if (p && playhead >= dur - 0.001) playhead = 0; // replay from start
+  playing = p;
+  clockWallStart = performance.now();
+  clockTimeStart = playhead;
+  $("#play-icon").style.display = p ? "none" : "";
+  $("#pause-icon").style.display = p ? "" : "none";
+  syncMediaElements(true);
+}
+
+$("#play-btn").addEventListener("click", () => setPlaying(!playing));
+$("#scrubber").addEventListener("input", (e) => seek(+e.target.value));
+
+window.addEventListener("keydown", (e) => {
+  if (e.target.matches("input, select, textarea")) return;
+  if (e.code === "Space") { e.preventDefault(); setPlaying(!playing); }
+  else if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteSelectedClip(); }
+  else if (e.key === "ArrowLeft") seek(playhead - (e.shiftKey ? 1 : 1 / 60));
+  else if (e.key === "ArrowRight") seek(playhead + (e.shiftKey ? 1 : 1 / 60));
+});
+
+/* ---------------- A/V element sync (preview only) ---------------- */
+let currentAudioClipId = null;
+
+function syncMediaElements(force) {
+  // videos: keep each active video element near its source time
+  for (const track of visualTracks()) {
+    for (const clip of track.clips) {
+      const m = mediaById(clip.mediaId);
+      if (!m || m.type !== "video" || !m.videoEl) continue;
+      const v = m.videoEl;
+      const active = playhead >= clip.startTime && playhead < clip.startTime + clip.duration;
+      if (!active) { if (!v.paused) v.pause(); continue; }
+      const target = clip.sourceStart + (playhead - clip.startTime);
+      const drift = Math.abs(v.currentTime - target);
+      if (playing) {
+        if (drift > 0.25 || force) { try { v.currentTime = target; } catch (e) {} }
+        if (v.paused) tryPlay(v);
+      } else {
+        if (!v.paused) v.pause();
+        if (drift > 0.04 || force) { try { v.currentTime = target; } catch (e) {} }
+      }
+    }
+  }
+  // the single audio track
+  const aClip = activeClipsAt(playhead, audioTrack())[0] || null;
+  const prev = currentAudioClipId ? findClip(currentAudioClipId) : null;
+  if (prev && (!aClip || aClip.id !== currentAudioClipId)) {
+    const pm = mediaById(prev.clip.mediaId);
+    if (pm && pm.audioEl) pm.audioEl.pause();
+    currentAudioClipId = null;
+  }
+  if (aClip) {
+    const m = mediaById(aClip.mediaId);
+    if (m && m.audioEl) {
+      const a = m.audioEl;
+      const target = aClip.sourceStart + (playhead - aClip.startTime);
+      const drift = Math.abs(a.currentTime - target);
+      if (playing) {
+        if (drift > 0.25 || force || currentAudioClipId !== aClip.id) { try { a.currentTime = target; } catch (e) {} }
+        if (a.paused) tryPlay(a);
+      } else {
+        if (!a.paused) a.pause();
+        if (drift > 0.04 || force) { try { a.currentTime = target; } catch (e) {} }
+      }
+      currentAudioClipId = aClip.id;
+    }
+  }
+}
+
+/* ---------------- selection overlay (NOT part of renderFrameAt) ---------------- */
+const COARSE_POINTER = matchMedia("(pointer: coarse)").matches;
+const HANDLE_R = COARSE_POINTER ? 13 : 7;  // canvas-space px, scaled by 1/stageScale for constant screen size
+const HIT_PAD = COARSE_POINTER ? 12 : 5;   // extra grab slack around handles
+const ROT_OFFSET = COARSE_POINTER ? 48 : 36;
+
+function clipCorners(clip, media) {
+  const w = (media.width || project.width) * clip.scale;
+  const h = (media.height || project.height) * clip.scale;
+  const cos = Math.cos(clip.rotation), sin = Math.sin(clip.rotation);
+  const pts = [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]];
+  return pts.map(([x, y]) => [clip.x + x * cos - y * sin, clip.y + x * sin + y * cos]);
+}
+
+function rotHandlePos(clip, media) {
+  const h = (media.height || project.height) * clip.scale;
+  const d = h / 2 + ROT_OFFSET / stageScale;
+  // local point (0, -d) rotated by clip.rotation, then translated to the clip center
+  return [clip.x + Math.sin(clip.rotation) * d, clip.y - Math.cos(clip.rotation) * d];
+}
+
+function drawSelectionOverlay() {
+  // origin shifted by overlayPad: everything below still draws in project coordinates
+  octx.setTransform(1, 0, 0, 1, overlayPad, overlayPad);
+  octx.clearRect(-overlayPad, -overlayPad, overlayCanvas.width, overlayCanvas.height);
+  const sel = selectedClip();
+  if (!sel || sel.track.type !== "visual") return;
+  const t = playhead;
+  if (t < sel.clip.startTime || t >= sel.clip.startTime + sel.clip.duration) return; // only when visible
+  const media = mediaById(sel.clip.mediaId);
+  if (!media) return;
+  const pts = clipCorners(sel.clip, media);
+  const lw = 1.5 / stageScale;
+  octx.lineWidth = lw;
+  octx.strokeStyle = "#e8b35a";
+  octx.beginPath();
+  octx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < 4; i++) octx.lineTo(pts[i][0], pts[i][1]);
+  octx.closePath();
+  octx.stroke();
+  // corner scale handles
+  const r = HANDLE_R / stageScale;
+  octx.fillStyle = "#e8b35a";
+  for (const [x, y] of pts) { octx.beginPath(); octx.arc(x, y, r, 0, Math.PI * 2); octx.fill(); }
+  // rotation handle: stem + circle above top edge midpoint
+  const [rx, ry] = rotHandlePos(sel.clip, media);
+  const topMid = [(pts[0][0] + pts[1][0]) / 2, (pts[0][1] + pts[1][1]) / 2];
+  octx.beginPath(); octx.moveTo(topMid[0], topMid[1]); octx.lineTo(rx, ry); octx.stroke();
+  octx.beginPath(); octx.arc(rx, ry, r, 0, Math.PI * 2);
+  octx.fillStyle = "#101114"; octx.fill(); octx.stroke();
+}
+
+/* ---------------- canvas pointer interactions ---------------- */
+function canvasPoint(e) {
+  const rect = overlayCanvas.getBoundingClientRect();
+  return [
+    (e.clientX - rect.left) / stageScale - overlayPad,
+    (e.clientY - rect.top) / stageScale - overlayPad,
+  ];
+}
+
+function pointInClip(px, py, clip, media) {
+  // inverse transform into clip-local space
+  const dx = px - clip.x, dy = py - clip.y;
+  const cos = Math.cos(-clip.rotation), sin = Math.sin(-clip.rotation);
+  const lx = (dx * cos - dy * sin) / clip.scale;
+  const ly = (dx * sin + dy * cos) / clip.scale;
+  const w = media.width || project.width, h = media.height || project.height;
+  return Math.abs(lx) <= w / 2 && Math.abs(ly) <= h / 2;
+}
+
+function hitTestSelection(px, py) {
+  const sel = selectedClip();
+  if (!sel || sel.track.type !== "visual") return null;
+  if (playhead < sel.clip.startTime || playhead >= sel.clip.startTime + sel.clip.duration) return null;
+  const media = mediaById(sel.clip.mediaId);
+  if (!media) return null;
+  const r = (HANDLE_R + HIT_PAD) / stageScale;
+  const [rx, ry] = rotHandlePos(sel.clip, media);
+  if (Math.hypot(px - rx, py - ry) <= r) return { kind: "rotate" };
+  const pts = clipCorners(sel.clip, media);
+  for (let i = 0; i < 4; i++)
+    if (Math.hypot(px - pts[i][0], py - pts[i][1]) <= r) return { kind: "scale", corner: i };
+  if (pointInClip(px, py, sel.clip, media)) return { kind: "move" };
+  return null;
+}
+
+function topmostClipAt(px, py) {
+  const vis = visualTracks();
+  for (let ti = vis.length - 1; ti >= 0; ti--) {
+    const clips = activeClipsAt(playhead, vis[ti]);
+    for (let ci = clips.length - 1; ci >= 0; ci--) {
+      const m = mediaById(clips[ci].mediaId);
+      if (m && pointInClip(px, py, clips[ci], m)) return { track: vis[ti], clip: clips[ci] };
+    }
+  }
+  return null;
+}
+
+/* Pointer state on the overlay: one map drives both single-finger drag and
+   two-finger pinch/rotate, so the second touch cleanly takes over from the first. */
+const ovPtrs = new Map();   // pointerId -> {x, y} in project coords
+let dragGesture = null;     // single-pointer move/scale/rotate
+let pinchGesture = null;    // two-finger transform
+
+function beginPinch() {
+  const sel = selectedClip();
+  if (!sel || sel.track.type !== "visual") return;
+  const pts = [...ovPtrs.values()];
+  if (pts.length < 2) return;
+  const [a, b] = pts;
+  const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+  const ang = Math.atan2(b.y - a.y, b.x - a.x);
+  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  pinchGesture = {
+    clip: sel.clip,
+    base: { scale: sel.clip.scale, rotation: sel.clip.rotation, x: sel.clip.x, y: sel.clip.y },
+    dist0: dist, ang0: ang, mid0: mid,
+  };
+  dragGesture = null; // the first finger's drag yields to the pinch
+}
+
+function updatePinch() {
+  if (!pinchGesture) return;
+  const pts = [...ovPtrs.values()];
+  if (pts.length < 2) return;
+  const [a, b] = pts;
+  const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+  const ang = Math.atan2(b.y - a.y, b.x - a.x);
+  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  const g = pinchGesture;
+  g.clip.scale = Math.max(0.02, g.base.scale * (dist / g.dist0));
+  g.clip.rotation = g.base.rotation + (ang - g.ang0);
+  g.clip.x = g.base.x + (mid.x - g.mid0.x);
+  g.clip.y = g.base.y + (mid.y - g.mid0.y);
+  requestPreviewRedraw();
+}
+
+overlayCanvas.addEventListener("pointerdown", (e) => {
+  if (e.pointerType === "mouse" && e.button !== 0) return;
+  const [px, py] = canvasPoint(e);
+  ovPtrs.set(e.pointerId, { x: px, y: py });
+  overlayCanvas.setPointerCapture(e.pointerId);
+
+  // second finger → switch to pinch/rotate on the selected clip
+  if (ovPtrs.size === 2) { e.preventDefault(); beginPinch(); return; }
+  if (ovPtrs.size > 2) return;
+
+  // first finger / mouse → hit-test for drag, scale, or rotate
+  let action = hitTestSelection(px, py);
+  if (!action) {
+    const hit = topmostClipAt(px, py);
+    selection = hit ? { trackId: hit.track.id, clipId: hit.clip.id } : null;
+    renderTimeline();
+    requestPreviewRedraw();
+    if (!hit) { dragGesture = null; return; }
+    action = { kind: "move" };
+  }
+  const sel = selectedClip();
+  if (!sel) return;
+  e.preventDefault();
+  const clip = sel.clip;
+  dragGesture = {
+    action, clip,
+    orig: { x: clip.x, y: clip.y, scale: clip.scale, rotation: clip.rotation, px, py },
+    startDist: Math.hypot(px - clip.x, py - clip.y) || 1,
+    startAng: Math.atan2(py - clip.y, px - clip.x),
+  };
+});
+
+overlayCanvas.addEventListener("pointermove", (e) => {
+  if (!ovPtrs.has(e.pointerId)) {
+    // hover feedback only (mouse, no button down)
+    if (!e.buttons) {
+      const [px, py] = canvasPoint(e);
+      const a = hitTestSelection(px, py);
+      overlayCanvas.style.cursor =
+        a ? (a.kind === "move" ? "move" : a.kind === "rotate" ? "grab" : "nwse-resize")
+          : (topmostClipAt(px, py) ? "pointer" : "default");
+    }
+    return;
+  }
+  const [px, py] = canvasPoint(e);
+  ovPtrs.set(e.pointerId, { x: px, y: py });
+
+  if (pinchGesture) { updatePinch(); return; }
+  if (!dragGesture) return;
+
+  const g = dragGesture, clip = g.clip, orig = g.orig;
+  if (g.action.kind === "move") {
+    clip.x = orig.x + (px - orig.px);
+    clip.y = orig.y + (py - orig.py);
+  } else if (g.action.kind === "scale") {
+    const d = Math.hypot(px - clip.x, py - clip.y);
+    clip.scale = Math.max(0.02, orig.scale * (d / g.startDist));
+  } else { // rotate
+    const ang = Math.atan2(py - clip.y, px - clip.x);
+    let rot = orig.rotation + (ang - g.startAng);
+    if (e.shiftKey) rot = Math.round(rot / (Math.PI / 12)) * (Math.PI / 12); // 15° snap
+    clip.rotation = rot;
+  }
+  requestPreviewRedraw();
+});
+
+function endOverlayPointer(e) {
+  if (!ovPtrs.has(e.pointerId)) return;
+  ovPtrs.delete(e.pointerId);
+  try { overlayCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
+  if (ovPtrs.size < 2) pinchGesture = null;
+  if (ovPtrs.size === 0) dragGesture = null;
+  // if one finger remains after a pinch, don't resurrect a stale drag
+  if (ovPtrs.size === 1 && !pinchGesture) dragGesture = null;
+}
+overlayCanvas.addEventListener("pointerup", endOverlayPointer);
+overlayCanvas.addEventListener("pointercancel", endOverlayPointer);
+
+/* ---------------- the preview loop ---------------- */
+function previewLoop(now) {
+  if (playing) {
+    playhead = clockTimeStart + (now - clockWallStart) / 1000;
+    const dur = timelineDuration();
+    if (playhead >= dur) { playhead = dur; setPlaying(false); }
+    syncMediaElements(false);
+    updatePlayheadEl();
+    redrawWanted = true;
+  }
+  if (redrawWanted) {
+    redrawWanted = playing; // keep drawing while playing; once when paused
+    renderFrameAt(playhead, pctx, null); // preview frameSource: the <video> elements themselves
+    drawSelectionOverlay();
+  }
+  requestAnimationFrame(previewLoop);
+}
+
+/* ---------------- guard rails ---------------- */
+window.addEventListener("beforeunload", (e) => {
+  if (hasAnyWork()) { e.preventDefault(); e.returnValue = ""; }
+});
+</script>
+<script>
+"use strict";
+/* =====================================================================
+   EXPORT — 60 fps MP4.
+   Primary path: WebCodecs (VideoEncoder/AudioEncoder) + mp4-muxer, with
+   frame-accurate source decoding via mp4box demux + VideoDecoder.
+   Fallback path: ffmpeg.wasm (lazy-loaded) when WebCodecs is missing.
+   The export module is pluggable — the rest of the app only calls
+   runExport(), and renderFrameAt is shared with the preview untouched.
+   ===================================================================== */
+
+function updateExportEnabled() {
+  $("#export-btn").disabled = timelineDuration() <= 0;
+}
+
+/* ---------- modal ---------- */
+const exportModal = $("#export-modal");
+let exportState = null; // { cancelled }
+
+function openExportModal(subtitle) {
+  $("#export-sub").textContent = subtitle;
+  $("#export-fill").style.width = "0%";
+  $("#export-stats").textContent = "preparing…";
+  $("#export-cancel").style.display = "";
+  $("#export-done").style.display = "none";
+  $("#export-title").textContent = "Exporting MP4";
+  exportModal.classList.add("open");
+}
+function setExportProgress(frac, text) {
+  $("#export-fill").style.width = (clamp(frac, 0, 1) * 100).toFixed(1) + "%";
+  $("#export-stats").textContent = text;
+}
+function exportFinished(ok, text) {
+  $("#export-title").textContent = ok ? "Export complete" : "Export stopped";
+  $("#export-stats").textContent = text;
+  if (ok) $("#export-fill").style.width = "100%";
+  $("#export-cancel").style.display = "none";
+  $("#export-done").style.display = "";
+}
+$("#export-cancel").addEventListener("click", () => { if (exportState) exportState.cancelled = true; });
+$("#export-done").addEventListener("click", () => exportModal.classList.remove("open"));
+
+/* ---------- shared: offline audio render of the single audio track ---------- */
+async function renderTimelineAudio(totalDur, sampleRate) {
+  // audio-track clips + the embedded audio of video clips on visual tracks
+  const sources = [...audioTrack().clips];
+  for (const tr of visualTracks())
+    for (const c of tr.clips) {
+      const m = mediaById(c.mediaId);
+      if (m && m.type === "video") sources.push(c);
+    }
+  if (!sources.length) return null;
+  const ctx = new OfflineAudioContext(2, Math.max(1, Math.ceil(totalDur * sampleRate)), sampleRate);
+  const bufCache = new Map(); // mediaId -> AudioBuffer | null (null = no decodable audio)
+  let any = false;
+  for (const c of sources) {
+    const m = mediaById(c.mediaId);
+    if (!m || !m.file) continue;
+    let buf;
+    if (bufCache.has(m.id)) buf = bufCache.get(m.id);
+    else {
+      try { buf = await ctx.decodeAudioData(await m.file.arrayBuffer()); }
+      catch (e) { buf = null; console.warn("no decodable audio in", m.name, e); } // e.g. silent video
+      bufCache.set(m.id, buf);
+    }
+    if (!buf) continue;
+    const node = ctx.createBufferSource();
+    node.buffer = buf;
+    node.connect(ctx.destination);
+    const offset = clamp(c.sourceStart || 0, 0, buf.duration);
+    const dur = Math.min(c.duration, buf.duration - offset, totalDur - c.startTime);
+    if (dur > 0) { node.start(Math.max(0, c.startTime), offset, dur); any = true; }
+  }
+  if (!any) return null;
+  return await ctx.startRendering();
+}
+
+/* ---------- demux cache: mp4box → encoded samples per media ---------- */
+const demuxCache = new Map(); // mediaId -> {codec, codedWidth, codedHeight, description, samples:[{data,tsUs,durUs,key}]} | "failed"
+
+function extractDescription(mp4boxfile, trackId) {
+  const DS = (typeof DataStream !== "undefined") ? DataStream
+           : (typeof MP4Box !== "undefined" && MP4Box.DataStream) ? MP4Box.DataStream : null;
+  const trak = mp4boxfile.getTrackById(trackId);
+  for (const entry of trak.mdia.minf.stbl.stsd.entries) {
+    const box = entry.avcC || entry.hvcC || entry.vpcC || entry.av1C;
+    if (box && DS) {
+      const stream = new DS(undefined, 0, DS.BIG_ENDIAN);
+      box.write(stream);
+      return new Uint8Array(stream.buffer, 8); // strip the 8-byte box header
+    }
+  }
+  return null;
+}
+
+async function demuxVideo(media) {
+  if (demuxCache.has(media.id)) {
+    const hit = demuxCache.get(media.id);
+    if (hit === "failed") throw new Error("previously failed");
+    return hit;
+  }
+  if (typeof MP4Box === "undefined") { demuxCache.set(media.id, "failed"); throw new Error("mp4box unavailable"); }
+  try {
+    const buffer = await media.file.arrayBuffer();
+    const result = await new Promise((resolve, reject) => {
+      const f = MP4Box.createFile();
+      let info = null, vTrack = null, description = null;
+      const samples = [];
+      const guard = setTimeout(() => reject(new Error("demux timeout")), 30000);
+      f.onError = (e) => { clearTimeout(guard); reject(new Error("mp4box: " + e)); };
+      f.onReady = (i) => {
+        info = i;
+        vTrack = i.videoTracks && i.videoTracks[0];
+        if (!vTrack) { clearTimeout(guard); reject(new Error("no video track")); return; }
+        try { description = extractDescription(f, vTrack.id); } catch (e) { description = null; }
+        f.setExtractionOptions(vTrack.id, null, { nbSamples: 100 });
+        f.start();
+      };
+      f.onSamples = (id, user, batch) => {
+        for (const s of batch) {
+          samples.push({
+            data: s.data,
+            tsUs: Math.round((s.cts / s.timescale) * 1e6),
+            durUs: Math.max(1, Math.round((s.duration / s.timescale) * 1e6)),
+            key: !!s.is_sync,
+          });
+        }
+        if (vTrack && samples.length >= vTrack.nb_samples) {
+          clearTimeout(guard);
+          resolve({
+            codec: vTrack.codec,
+            codedWidth: vTrack.video ? vTrack.video.width : vTrack.track_width,
+            codedHeight: vTrack.video ? vTrack.video.height : vTrack.track_height,
+            description, samples,
+          });
+        }
+      };
+      buffer.fileStart = 0;
+      f.appendBuffer(buffer);
+      f.flush();
+      // small files may deliver everything before flush; if counts never match, the guard rejects
+    });
+    if (!result.samples.length) throw new Error("no samples");
+    demuxCache.set(media.id, result);
+    return result;
+  } catch (err) {
+    demuxCache.set(media.id, "failed");
+    throw err;
+  }
+}
+
+/* ---------- frame-accurate per-clip video source (VideoDecoder) ---------- */
+class DecodedClipSource {
+  constructor(demux) {
+    this.demux = demux;
+    this.frames = [];       // decoded VideoFrames in presentation order
+    this.current = null;    // best frame so far for the last requested time
+    this.idx = 0;           // next sample (decode order) to feed
+    this.flushed = false;
+    this.err = null;
+  }
+  async init(sourceStart) {
+    const d = this.demux;
+    this.decoder = new VideoDecoder({
+      output: (f) => this.frames.push(f),
+      error: (e) => { this.err = e; },
+    });
+    const cfg = {
+      codec: d.codec,
+      codedWidth: d.codedWidth,
+      codedHeight: d.codedHeight,
+      hardwareAcceleration: "no-preference",
+    };
+    if (d.description) cfg.description = d.description;
+    const sup = await VideoDecoder.isConfigSupported(cfg);
+    if (!sup.supported) throw new Error("decoder config unsupported: " + d.codec);
+    this.decoder.configure(cfg);
+    // start from the last keyframe at or before the clip's source in-point
+    const startUs = sourceStart * 1e6;
+    let start = 0;
+    for (let i = 0; i < d.samples.length; i++)
+      if (d.samples[i].key && d.samples[i].tsUs <= startUs + 1) start = i;
+    this.idx = start;
+  }
+  hasFrameBeyond(tUs) {
+    return this.flushed || this.frames.some((f) => f.timestamp > tUs);
+  }
+  async pump(tUs) {
+    const d = this.demux;
+    while (!this.hasFrameBeyond(tUs) && !this.err) {
+      if (this.idx >= d.samples.length) {
+        if (!this.flushed) {
+          this.flushed = true;
+          try { await this.decoder.flush(); } catch (e) {}
+        }
+        break;
+      }
+      // feed a small batch, then yield so outputs can arrive
+      const end = Math.min(this.idx + 8, d.samples.length);
+      for (; this.idx < end; this.idx++) {
+        const s = d.samples[this.idx];
+        this.decoder.decode(new EncodedVideoChunk({
+          type: s.key ? "key" : "delta",
+          timestamp: s.tsUs,
+          duration: s.durUs,
+          data: s.data,
+        }));
+      }
+      while (this.decoder.decodeQueueSize > 16 && !this.err) await sleep(0);
+      await sleep(0);
+    }
+    if (this.err) throw this.err;
+  }
+  /** Monotonic within a clip: returns the frame covering source time t (seconds). */
+  async frameAt(t) {
+    const tUs = Math.round(t * 1e6);
+    await this.pump(tUs);
+    // promote every decoded frame whose timestamp <= t; the last becomes current
+    while (this.frames.length && this.frames[0].timestamp <= tUs) {
+      if (this.current) this.current.close();
+      this.current = this.frames.shift();
+    }
+    return this.current || this.frames[0] || null; // frames[0]: t precedes first sample
+  }
+  dispose() {
+    try { if (this.decoder && this.decoder.state !== "closed") this.decoder.close(); } catch (e) {}
+    if (this.current) { try { this.current.close(); } catch (e) {} this.current = null; }
+    for (const f of this.frames) { try { f.close(); } catch (e) {} }
+    this.frames.length = 0;
+  }
+}
+
+/* ---------- fallback per-clip source: awaited seeks on a cloned <video> ---------- */
+class SeekClipSource {
+  async init(media) {
+    this.v = document.createElement("video");
+    this.v.muted = true;
+    this.v.preload = "auto";
+    this.v.src = media.url;
+    await new Promise((res, rej) => {
+      this.v.onloadeddata = res;
+      this.v.onerror = () => rej(new Error("seek-source load failed"));
+      setTimeout(res, 4000);
+    });
+  }
+  async frameAt(t) {
+    if (Math.abs(this.v.currentTime - t) > 1 / 240) {
+      await new Promise((res) => {
+        const done = () => { this.v.removeEventListener("seeked", done); res(); };
+        this.v.addEventListener("seeked", done);
+        try { this.v.currentTime = t; } catch (e) { res(); }
+        setTimeout(done, 1000); // never let one stuck seek hang the export
+      });
+    }
+    return this.v;
+  }
+  dispose() {
+    this.v.removeAttribute("src");
+    this.v.load();
+  }
+}
+
+/* lazily build the right source for each video clip */
+async function buildClipSource(clip, media, preferDecoder) {
+  if (preferDecoder && typeof VideoDecoder !== "undefined") {
+    try {
+      const demux = await demuxVideo(media);
+      const src = new DecodedClipSource(demux);
+      await src.init(clip.sourceStart);
+      return src;
+    } catch (err) {
+      console.warn("Frame-accurate decode unavailable for", media.name, "— using seek fallback.", err);
+    }
+  }
+  const src = new SeekClipSource();
+  await src.init(media);
+  return src;
+}
+
+/* ---------- export driver ---------- */
+$("#export-btn").addEventListener("click", () => {
+  if (playing) setPlaying(false);
+  runExport().catch((err) => {
+    console.error(err);
+    exportFinished(false, "Export failed: " + (err && err.message ? err.message : err));
+  });
+});
+
+async function runExport() {
+  const totalDur = timelineDuration();
+  if (totalDur <= 0) return;
+  const haveWebCodecs = typeof VideoEncoder !== "undefined" && typeof VideoFrame !== "undefined" && typeof Mp4Muxer !== "undefined";
+  if (haveWebCodecs) await exportWithWebCodecs(totalDur);
+  else await exportWithFfmpeg(totalDur);
+}
+
+/* prepare the per-frame video sources + a frameSource fn for renderFrameAt */
+function makeExportFramePlan(preferDecoder) {
+  const sources = new Map(); // clipId -> source
+  const resolved = new Map(); // clipId -> drawable for the current frame
+  return {
+    async prepareFrame(t) {
+      resolved.clear();
+      for (const track of visualTracks()) {
+        for (const clip of activeClipsAt(t, track)) {
+          const media = mediaById(clip.mediaId);
+          if (!media || media.type !== "video") continue;
+          let src = sources.get(clip.id);
+          if (!src) {
+            src = await buildClipSource(clip, media, preferDecoder);
+            sources.set(clip.id, src);
+          }
+          const st = clip.sourceStart + (t - clip.startTime);
+          resolved.set(clip.id, await src.frameAt(st));
+        }
+      }
+      // free sources for clips that have fully passed
+      for (const [clipId, src] of sources) {
+        const found = findClip(clipId);
+        if (!found || t >= found.clip.startTime + found.clip.duration) {
+          src.dispose();
+          sources.delete(clipId);
+        }
+      }
+    },
+    frameSource: (clip) => resolved.get(clip.id) || null,
+    disposeAll() { for (const src of sources.values()) src.dispose(); sources.clear(); },
+  };
+}
+
+/* ---------- path A: WebCodecs + mp4-muxer ---------- */
+async function pickVideoCodec(width, height, fps, bitrate) {
+  const candidates = ["avc1.640034", "avc1.64002a", "avc1.640028", "avc1.4d402a", "avc1.42e02a", "avc1.42001f"];
+  for (const codec of candidates) {
+    try {
+      const { supported } = await VideoEncoder.isConfigSupported({ codec, width, height, framerate: fps, bitrate });
+      if (supported) return codec;
+    } catch (e) {}
+  }
+  throw new Error("No supported H.264 encoder configuration for this resolution.");
+}
+
+async function exportWithWebCodecs(totalDur) {
+  exportState = { cancelled: false };
+  openExportModal("Rendering at 60 fps with hardware encoding where available. Long or high-resolution timelines take a while — keep this tab open.");
+  const fps = project.fps;
+  const width = project.width - (project.width % 2);
+  const height = project.height - (project.height % 2);
+  const totalFrames = Math.max(1, Math.round(totalDur * fps));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width; canvas.height = height;
+  const ctx = canvas.getContext("2d");
+
+  // audio first (it also tells us whether to allocate an audio track in the muxer)
+  setExportProgress(0, "rendering audio…");
+  const SR = 48000;
+  let audioBuf = null;
+  const wantAudio = audioTrack().clips.length > 0;
+  if (wantAudio) {
+    audioBuf = await renderTimelineAudio(totalDur, SR);
+    if (audioBuf && typeof AudioEncoder === "undefined") {
+      toast("This browser can't encode AAC audio — exporting video only.", true);
+      audioBuf = null;
+    }
+  }
+  if (exportState.cancelled) { exportFinished(false, "Cancelled."); return; }
+
+  const bitrate = clamp(Math.round(width * height * fps * 0.08), 1e6, 25e6);
+  const codec = await pickVideoCodec(width, height, fps, bitrate);
+
+  const muxer = new Mp4Muxer.Muxer({
+    target: new Mp4Muxer.ArrayBufferTarget(),
+    video: { codec: "avc", width, height },
+    audio: audioBuf ? { codec: "aac", sampleRate: SR, numberOfChannels: 2 } : undefined,
+    fastStart: "in-memory",
+    firstTimestampBehavior: "offset",
+  });
+
+  let encErr = null;
+  const videoEncoder = new VideoEncoder({
+    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+    error: (e) => { encErr = e; },
+  });
+  videoEncoder.configure({ codec, width, height, framerate: fps, bitrate });
+
+  let audioEncoder = null;
+  if (audioBuf) {
+    audioEncoder = new AudioEncoder({
+      output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+      error: (e) => { encErr = e; },
+    });
+    audioEncoder.configure({ codec: "mp4a.40.2", sampleRate: SR, numberOfChannels: 2, bitrate: 128000 });
+  }
+
+  const plan = makeExportFramePlan(true);
+  const t0 = performance.now();
+  try {
+    /* deterministic frame loop: frame N renders time N / fps via renderFrameAt */
+    for (let i = 0; i < totalFrames; i++) {
+      if (exportState.cancelled || encErr) break;
+      const t = i / fps;
+      await plan.prepareFrame(t);
+      renderFrameAt(t, ctx, plan.frameSource);
+      const frame = new VideoFrame(canvas, { timestamp: Math.round(i * 1e6 / fps), duration: Math.round(1e6 / fps) });
+      videoEncoder.encode(frame, { keyFrame: i % (fps * 2) === 0 });
+      frame.close();
+      while (videoEncoder.encodeQueueSize > 4) await sleep(0); // backpressure
+      if (i % 5 === 0 || i === totalFrames - 1) {
+        const el = (performance.now() - t0) / 1000;
+        const fpsNow = (i + 1) / Math.max(0.001, el);
+        setExportProgress((i + 1) / totalFrames * (audioBuf ? 0.92 : 0.97),
+          `frame ${i + 1} / ${totalFrames} · ${fpsNow.toFixed(1)} fps · ${fmtTime(el)} elapsed`);
+        await sleep(0); // keep the UI breathing
+      }
+    }
+
+    if (!exportState.cancelled && !encErr && audioEncoder && audioBuf) {
+      setExportProgress(0.94, "encoding audio…");
+      const chans = Math.min(2, audioBuf.numberOfChannels);
+      const ch0 = audioBuf.getChannelData(0);
+      const ch1 = chans > 1 ? audioBuf.getChannelData(1) : ch0;
+      const CHUNK = SR / 2; // 0.5 s per AudioData
+      for (let off = 0; off < audioBuf.length; off += CHUNK) {
+        if (exportState.cancelled) break;
+        const n = Math.min(CHUNK, audioBuf.length - off);
+        const planar = new Float32Array(n * 2);
+        planar.set(ch0.subarray(off, off + n), 0);
+        planar.set(ch1.subarray(off, off + n), n);
+        const data = new AudioData({
+          format: "f32-planar", sampleRate: SR, numberOfFrames: n, numberOfChannels: 2,
+          timestamp: Math.round(off / SR * 1e6), data: planar,
+        });
+        audioEncoder.encode(data);
+        data.close();
+        while (audioEncoder.encodeQueueSize > 8) await sleep(0);
+      }
+    }
+
+    if (exportState.cancelled) { exportFinished(false, "Cancelled — nothing was saved."); return; }
+    if (encErr) throw encErr;
+
+    setExportProgress(0.98, "finalizing…");
+    await videoEncoder.flush();
+    if (audioEncoder) await audioEncoder.flush();
+    muxer.finalize();
+
+    const blob = new Blob([muxer.target.buffer], { type: "video/mp4" });
+    downloadBlob(blob, "export.mp4");
+    exportFinished(true, `export.mp4 · ${(blob.size / 1048576).toFixed(1)} MB · ${totalFrames} frames @ ${fps} fps`);
+  } finally {
+    plan.disposeAll();
+    try { if (videoEncoder.state !== "closed") videoEncoder.close(); } catch (e) {}
+    try { if (audioEncoder && audioEncoder.state !== "closed") audioEncoder.close(); } catch (e) {}
+  }
+}
+
+/* ---------- path B: ffmpeg.wasm fallback ---------- */
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = res;
+    s.onerror = () => rej(new Error("Couldn't load " + src));
+    document.head.appendChild(s);
+  });
+}
+
+function audioBufferToWav(buf) {
+  const chans = Math.min(2, buf.numberOfChannels), sr = buf.sampleRate, n = buf.length;
+  const bytes = 44 + n * chans * 2;
+  const ab = new ArrayBuffer(bytes), dv = new DataView(ab);
+  const wstr = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+  wstr(0, "RIFF"); dv.setUint32(4, bytes - 8, true); wstr(8, "WAVE");
+  wstr(12, "fmt "); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true);
+  dv.setUint16(22, chans, true); dv.setUint32(24, sr, true);
+  dv.setUint32(28, sr * chans * 2, true); dv.setUint16(32, chans * 2, true); dv.setUint16(34, 16, true);
+  wstr(36, "data"); dv.setUint32(40, n * chans * 2, true);
+  let o = 44;
+  const data = [];
+  for (let c = 0; c < chans; c++) data.push(buf.getChannelData(c));
+  for (let i = 0; i < n; i++)
+    for (let c = 0; c < chans; c++) {
+      const v = clamp(data[c][i], -1, 1);
+      dv.setInt16(o, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+      o += 2;
+    }
+  return new Uint8Array(ab);
+}
+
+async function exportWithFfmpeg(totalDur) {
+  exportState = { cancelled: false };
+  openExportModal("This browser lacks WebCodecs, so frames are rendered to ffmpeg.wasm instead. This path is slower and uses more memory — short timelines only.");
+  setExportProgress(0, "loading ffmpeg.wasm…");
+  if (typeof FFmpegWASM === "undefined")
+    await loadScript("https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js");
+  if (typeof FFmpegUtil === "undefined")
+    await loadScript("https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js");
+  const { FFmpeg } = FFmpegWASM;
+  const { toBlobURL } = FFmpegUtil;
+  const ffmpeg = new FFmpeg();
+  const base = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd";
+  await ffmpeg.load({
+    coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, "text/javascript"),
+    wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, "application/wasm"),
+  });
+  if (exportState.cancelled) { exportFinished(false, "Cancelled."); return; }
+
+  const fps = project.fps;
+  const width = project.width - (project.width % 2);
+  const height = project.height - (project.height % 2);
+  const totalFrames = Math.max(1, Math.round(totalDur * fps));
+  const canvas = document.createElement("canvas");
+  canvas.width = width; canvas.height = height;
+  const ctx = canvas.getContext("2d");
+
+  const plan = makeExportFramePlan(false); // no VideoDecoder here — awaited-seek sources
+  try {
+    for (let i = 0; i < totalFrames; i++) {
+      if (exportState.cancelled) break;
+      const t = i / fps;
+      await plan.prepareFrame(t);
+      renderFrameAt(t, ctx, plan.frameSource);
+      const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.92));
+      await ffmpeg.writeFile(`f${String(i).padStart(6, "0")}.jpg`, new Uint8Array(await blob.arrayBuffer()));
+      if (i % 5 === 0) setExportProgress((i + 1) / totalFrames * 0.7, `frame ${i + 1} / ${totalFrames}`);
+    }
+    if (exportState.cancelled) { exportFinished(false, "Cancelled — nothing was saved."); return; }
+
+    setExportProgress(0.72, "rendering audio…");
+    const audioBuf = await renderTimelineAudio(totalDur, 48000);
+    if (audioBuf) await ffmpeg.writeFile("audio.wav", audioBufferToWav(audioBuf));
+
+    setExportProgress(0.75, "encoding with ffmpeg…");
+    ffmpeg.on("progress", ({ progress }) => {
+      if (progress >= 0 && progress <= 1) setExportProgress(0.75 + progress * 0.24, `encoding… ${(progress * 100).toFixed(0)}%`);
+    });
+    const args = ["-framerate", String(fps), "-i", "f%06d.jpg"];
+    if (audioBuf) args.push("-i", "audio.wav");
+    args.push("-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p");
+    if (audioBuf) args.push("-c:a", "aac", "-shortest");
+    args.push("out.mp4");
+    await ffmpeg.exec(args);
+
+    const out = await ffmpeg.readFile("out.mp4");
+    const blob = new Blob([out.buffer], { type: "video/mp4" });
+    downloadBlob(blob, "export.mp4");
+    exportFinished(true, `export.mp4 · ${(blob.size / 1048576).toFixed(1)} MB · ${totalFrames} frames @ ${fps} fps`);
+  } finally {
+    plan.disposeAll();
+  }
+}
+
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+/* ---------------- boot ---------------- */
+renderLibrary();
+renderTimeline();
+resizeStage();
+requestAnimationFrame(previewLoop);
+</script>
+</body>
+</html>
