@@ -1113,7 +1113,8 @@ function startClipDrag(e, track, clip, el) {
 
   const maxSourceDur = media && media.duration ? media.duration : Infinity; // images: unbounded
 
-  const move = (ev) => {
+  // Compute new clip geometry from a pointer event, mutating the data model.
+  const applyMove = (ev) => {
     const dx = (ev.clientX - startX) / pxPerSec;
     if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) > 2) moved = true;
     let snapShown = null;
@@ -1126,13 +1127,15 @@ function startClipDrag(e, track, clip, el) {
       else if (sEnd != null) { t = Math.max(0, sEnd - clip.duration); snapShown = sEnd; }
       clip.startTime = t;
 
-      // allow re-parenting between visual tracks while dragging vertically
+      // re-parent between visual tracks while dragging vertically (move just this one node)
       if (origTrack.type === "visual") {
         const lane = laneAtPoint(ev.clientX, ev.clientY);
         if (lane) {
           const target = tracks.find((tt) => tt.id === lane.dataset.trackId);
           if (target && target.type === "visual" && target !== currentTrackOf(clip)) {
             moveClipToTrack(clip, target);
+            const targetLane = tracksHost.querySelector(`.track-lane[data-track-id="${target.id}"]`);
+            if (targetLane && el.parentElement !== targetLane) targetLane.appendChild(el);
           }
         }
       }
@@ -1159,24 +1162,42 @@ function startClipDrag(e, track, clip, el) {
         newDur = Math.min(newDur, maxSourceDur - clip.sourceStart); // can't extend past the source
       clip.duration = newDur;
     }
+
+    // cheap, targeted DOM writes — NO full timeline rebuild mid-drag (that was the lag)
+    el.style.left = (clip.startTime * pxPerSec) + "px";
+    el.style.width = Math.max(6, clip.duration * pxPerSec) + "px";
+    tlInner.style.width = timelineContentWidth() + "px"; // grow scroll area if pushed past the end
     showSnapGuide(snapShown);
-    renderTimeline();
     requestPreviewRedraw();
+  };
+
+  // coalesce frequent pointermove events down to one update per animation frame
+  let rafId = 0, lastEv = null;
+  const move = (ev) => {
+    lastEv = ev;
+    if (!rafId) rafId = requestAnimationFrame(() => { rafId = 0; if (lastEv) applyMove(lastEv); });
   };
 
   const up = () => {
     window.removeEventListener("pointermove", move);
     window.removeEventListener("pointerup", up);
+    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+    if (lastEv) applyMove(lastEv); // flush the final position
     showSnapGuide(null);
+
     const tr = currentTrackOf(clip);
+    let rejected = false;
     if (tr && trackOverlaps(tr, clip.startTime, clip.duration, clip.id)) {
-      // clips can't overlap on a track — revert position, and the track too if it was re-parented
+      // clips can't overlap on a track — revert position, and the track too if re-parented
       clip.startTime = orig.startTime;
       clip.duration = orig.duration;
       clip.sourceStart = orig.sourceStart;
       if (tr !== origTrack) moveClipToTrack(clip, origTrack);
       selection = { trackId: origTrack.id, clipId: clip.id };
-      renderTimeline();
+      rejected = true;
+    }
+    renderTimeline(); // one full rebuild at the end, restoring exact layout + thumbnails
+    if (rejected) {
       const elNow = tracksHost.querySelector(`.clip[data-clip-id="${clip.id}"]`);
       if (elNow) elNow.classList.add("rejected");
       toast(tr.type === "audio"
@@ -1240,11 +1261,21 @@ function scrubToClientX(clientX) {
   const rect = tlInner.getBoundingClientRect();
   seek(xToTime(clientX - rect.left));
 }
+// scrubbing can fire many pointermoves per frame; coalesce to one update per frame
+function makeRafScrub() {
+  let raf = 0, x = 0;
+  return {
+    update(clientX) { x = clientX; if (!raf) raf = requestAnimationFrame(() => { raf = 0; scrubToClientX(x); }); },
+    flush() { if (raf) { cancelAnimationFrame(raf); raf = 0; } scrubToClientX(x); },
+  };
+}
+
 rulerEl.addEventListener("pointerdown", (e) => {
   e.preventDefault();
   scrubToClientX(e.clientX);
-  const move = (ev) => scrubToClientX(ev.clientX);
-  const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+  const s = makeRafScrub();
+  const move = (ev) => s.update(ev.clientX);
+  const up = () => { s.flush(); window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
   window.addEventListener("pointermove", move);
   window.addEventListener("pointerup", up);
 });
@@ -1257,8 +1288,10 @@ playheadHead.addEventListener("pointerdown", (e) => {
   if (playing) setPlaying(false);
   try { playheadHead.setPointerCapture(e.pointerId); } catch (_) {}
   scrubToClientX(e.clientX);
-  const move = (ev) => scrubToClientX(ev.clientX);
+  const s = makeRafScrub();
+  const move = (ev) => s.update(ev.clientX);
   const up = (ev) => {
+    s.flush();
     try { playheadHead.releasePointerCapture(ev.pointerId); } catch (_) {}
     playheadHead.removeEventListener("pointermove", move);
     playheadHead.removeEventListener("pointerup", up);
