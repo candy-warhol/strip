@@ -1,0 +1,2 @@
+# strip
+barebones video editor
