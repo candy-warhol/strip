@@ -431,7 +431,7 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5/build/mp4-muxer.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5/build/mp4-muxer.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mp4box@0.5/dist/mp4box.all.min.js"></script>
 <script>
 "use strict";
@@ -2338,7 +2338,16 @@ async function exportWithFfmpeg(totalDur) {
       const t = i / fps;
       await plan.prepareFrame(t);
       renderFrameAt(t, ctx, plan.frameSource);
+      if (i === 0) {
+        // iOS taints a canvas once a <video> is drawn, blocking frame readback here.
+        // Detect it on frame 0 and stop with guidance instead of a cryptic SecurityError.
+        try { ctx.getImageData(0, 0, 1, 1); }
+        catch (e) {
+          throw new Error("This browser can’t read video frames for export (an iOS Safari limitation). Update to iOS 26 / Safari 26, or export from Chrome or Edge on desktop.");
+        }
+      }
       const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.92));
+      if (!blob) throw new Error("Couldn’t read a video frame for export — the browser blocked canvas access.");
       await ffmpeg.writeFile(`f${String(i).padStart(6, "0")}.jpg`, new Uint8Array(await blob.arrayBuffer()));
       if (i % 5 === 0) setExportProgress((i + 1) / totalFrames * 0.7, `frame ${i + 1} / ${totalFrames}`);
     }
