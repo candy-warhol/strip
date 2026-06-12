@@ -1,6 +1,6 @@
 # STRIP
 a barebones video editor
-Lightweight, browser-based video editor in a single HTML file. No install, no server. Your media never leaves your device.\
+Lightweight, browser-based video editor in a single HTML file. No install, no server. Your media never leaves your device.
 
 ### Important
 ▶ To Open Strip, open index.html using Chrome, Edge, or Safari.\
