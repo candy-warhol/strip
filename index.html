@@ -1360,12 +1360,25 @@ function renderFrameAt(t, ctx, frameSource) {
       const media = mediaById(clip.mediaId);
       const drawable = drawableFor(clip, media, frameSource);
       if (!drawable) continue;
-      const w = media.width || project.width;
-      const h = media.height || project.height;
+      let w = media.width || project.width;
+      let h = media.height || project.height;
+      // A decoded VideoFrame carries NO rotation (VideoDecoder ignores it), unlike a <video>
+      // element which the browser auto-rotates. So when drawing a decoded frame for a rotated
+      // clip, draw it at the frame's own (pre-rotation) display size and rotate it ourselves.
+      const isDecodedFrame = (typeof VideoFrame !== "undefined") && (drawable instanceof VideoFrame);
+      let vrot = 0;
+      if (isDecodedFrame && media.type === "video" && media.rotation) {
+        vrot = media.rotation;
+        if (vrot === 90 || vrot === 270) {
+          w = drawable.displayWidth || media.height;
+          h = drawable.displayHeight || media.width;
+        }
+      }
       ctx.save();
       ctx.translate(clip.x, clip.y);
       ctx.rotate(clip.rotation);
       ctx.scale(clip.scale, clip.scale);
+      if (vrot) ctx.rotate(vrot * Math.PI / 180);
       try { ctx.drawImage(drawable, -w / 2, -h / 2, w, h); } catch (err) { /* not ready yet */ }
       ctx.restore();
     }
@@ -1863,6 +1876,25 @@ function aacASC(sampleRate, channels) {
   return new Uint8Array([(objType << 3) | (sfi >> 1), ((sfi & 1) << 7) | (ch << 3)]);
 }
 
+/* Pull the real AudioSpecificConfig (ASC) out of the audio track's esds descriptor tree. */
+function audioASCFromMp4box(f, trackId) {
+  try {
+    const trak = f.getTrackById(trackId);
+    const entry = trak.mdia.minf.stbl.stsd.entries[0];
+    const esds = entry && entry.esds;
+    if (!esds) return null;
+    let asc = null;
+    const visit = (d) => {
+      if (!d || asc) return;
+      if (d.tag === 0x05 && d.data) { asc = d.data; return; } // DecoderSpecificInfo
+      if (Array.isArray(d.descs)) d.descs.forEach(visit);
+    };
+    if (esds.esd) visit(esds.esd);
+    else if (Array.isArray(esds.descs)) esds.descs.forEach(visit);
+    return asc ? new Uint8Array(asc) : null;
+  } catch (e) { return null; }
+}
+
 /* Demux just the audio track of a media file with mp4box. */
 async function demuxAudioTrack(media) {
   if (typeof MP4Box === "undefined") throw new Error("mp4box unavailable");
@@ -1887,7 +1919,13 @@ async function demuxAudioTrack(media) {
       });
       if (aTrack && samples.length >= aTrack.nb_samples) {
         clearTimeout(guard);
-        resolve({ codec: aTrack.codec, sampleRate: aTrack.audio.sample_rate, channels: aTrack.audio.channel_count || 2, samples });
+        resolve({
+          codec: aTrack.codec,
+          sampleRate: aTrack.audio.sample_rate,
+          channels: aTrack.audio.channel_count || 2,
+          description: audioASCFromMp4box(f, aTrack.id),
+          samples,
+        });
       }
     };
     buffer.fileStart = 0;
@@ -1903,8 +1941,17 @@ async function decodeAudioViaWebCodecs(media, outCtx) {
   const dem = await demuxAudioTrack(media);
   const sr = dem.sampleRate, ch = Math.max(1, dem.channels);
   let codec = dem.codec || "mp4a.40.2";
-  let description;
-  if (/^mp4a/.test(codec)) { codec = "mp4a.40.2"; description = aacASC(sr, ch); }
+  let description = dem.description || undefined;            // real ASC from esds…
+  if (/^mp4a/.test(codec)) {
+    codec = "mp4a.40.2";
+    if (!description) description = aacASC(sr, ch);          // …or a hand-built AAC-LC one
+  }
+  const cfg = { codec, sampleRate: sr, numberOfChannels: ch };
+  if (description) cfg.description = description;
+  if (typeof AudioDecoder.isConfigSupported === "function") {
+    const sup = await AudioDecoder.isConfigSupported(cfg).catch(() => null);
+    if (sup && sup.supported === false) throw new Error("audio decode config unsupported: " + codec);
+  }
   const channelChunks = Array.from({ length: ch }, () => []);
   let totalFrames = 0, decErr = null;
   const dec = new AudioDecoder({
@@ -1933,7 +1980,7 @@ async function decodeAudioViaWebCodecs(media, outCtx) {
     },
     error: (e) => { decErr = e; },
   });
-  dec.configure({ codec, sampleRate: sr, numberOfChannels: ch, description });
+  dec.configure(cfg);
   for (const s of dem.samples) dec.decode(new EncodedAudioChunk({ type: "key", timestamp: s.tsUs, duration: s.durUs, data: s.data }));
   await dec.flush();
   try { dec.close(); } catch (e) {}
@@ -1948,7 +1995,9 @@ async function decodeAudioViaWebCodecs(media, outCtx) {
   return out;
 }
 
+let lastAudioError = null;
 async function renderTimelineAudio(totalDur, sampleRate) {
+  lastAudioError = null;
   // audio-track clips + the embedded audio of video clips on visual tracks
   const sources = [...audioTrack().clips];
   for (const tr of visualTracks())
@@ -1970,7 +2019,11 @@ async function renderTimelineAudio(totalDur, sampleRate) {
       catch (e) {
         // Safari refuses to decodeAudioData a *video* container — decode the audio via WebCodecs.
         try { buf = await decodeAudioViaWebCodecs(m, ctx); }
-        catch (e2) { buf = null; console.warn("no decodable audio in", m.name, e, e2); }
+        catch (e2) {
+          buf = null;
+          lastAudioError = `${(e2 && e2.message) || e2}`;
+          console.warn("no decodable audio in", m.name, e, e2);
+        }
       }
       bufCache.set(m.id, buf);
     }
@@ -1988,6 +2041,15 @@ async function renderTimelineAudio(totalDur, sampleRate) {
 
 /* ---------- demux cache: mp4box → encoded samples per media ---------- */
 const demuxCache = new Map(); // mediaId -> {codec, codedWidth, codedHeight, description, samples:[{data,tsUs,durUs,key}]} | "failed"
+
+/* Rotation (deg, snapped to 0/90/180/270) from a tkhd transformation matrix. */
+function rotationFromMatrix(m) {
+  if (!m || m.length < 2) return 0;
+  const a = m[0] / 65536, b = m[1] / 65536; // 16.16 fixed point
+  let deg = Math.round(Math.atan2(b, a) * 180 / Math.PI);
+  deg = ((deg % 360) + 360) % 360;
+  return (Math.round(deg / 90) * 90) % 360;
+}
 
 function extractDescription(mp4boxfile, trackId) {
   const DS = (typeof DataStream !== "undefined") ? DataStream
@@ -2015,7 +2077,7 @@ async function demuxVideo(media) {
     const buffer = await media.file.arrayBuffer();
     const result = await new Promise((resolve, reject) => {
       const f = MP4Box.createFile();
-      let info = null, vTrack = null, description = null;
+      let info = null, vTrack = null, description = null, rotation = 0;
       const samples = [];
       const guard = setTimeout(() => reject(new Error("demux timeout")), 30000);
       f.onError = (e) => { clearTimeout(guard); reject(new Error("mp4box: " + e)); };
@@ -2024,6 +2086,10 @@ async function demuxVideo(media) {
         vTrack = i.videoTracks && i.videoTracks[0];
         if (!vTrack) { clearTimeout(guard); reject(new Error("no video track")); return; }
         try { description = extractDescription(f, vTrack.id); } catch (e) { description = null; }
+        try {
+          const trak = f.getTrackById(vTrack.id);
+          rotation = rotationFromMatrix(trak && trak.tkhd && trak.tkhd.matrix);
+        } catch (e) { rotation = 0; }
         f.setExtractionOptions(vTrack.id, null, { nbSamples: 100 });
         f.start();
       };
@@ -2042,7 +2108,7 @@ async function demuxVideo(media) {
             codec: vTrack.codec,
             codedWidth: vTrack.video ? vTrack.video.width : vTrack.track_width,
             codedHeight: vTrack.video ? vTrack.video.height : vTrack.track_height,
-            description, samples,
+            rotation, description, samples,
           });
         }
       };
@@ -2176,6 +2242,7 @@ async function buildClipSource(clip, media, preferDecoder) {
   if (preferDecoder && typeof VideoDecoder !== "undefined") {
     try {
       const demux = await demuxVideo(media);
+      media.rotation = demux.rotation || 0;
       const src = new DecodedClipSource(demux);
       await src.init(clip.sourceStart);
       return src;
@@ -2301,6 +2368,8 @@ async function exportWithWebCodecs(totalDur) {
     if (audioBuf && typeof AudioEncoder === "undefined") {
       toast("This browser can't encode AAC audio — exporting video only.", true);
       audioBuf = null;
+    } else if (!audioBuf) {
+      toast("Export has no audio — couldn't decode the clip's audio track" + (lastAudioError ? `: ${lastAudioError}` : "."), true);
     }
   }
   if (exportState.cancelled) { exportFinished(false, "Cancelled."); return; }
