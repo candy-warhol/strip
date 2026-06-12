@@ -1853,6 +1853,101 @@ function hasTimelineAudio() {
   }));
 }
 
+/* Build a minimal AAC-LC AudioSpecificConfig from sample rate + channels (avoids esds parsing). */
+function aacASC(sampleRate, channels) {
+  const rates = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
+  let sfi = rates.indexOf(sampleRate);
+  if (sfi < 0) sfi = 4; // default to 44100
+  const objType = 2;    // AAC LC
+  const ch = Math.min(Math.max(channels || 2, 1), 7);
+  return new Uint8Array([(objType << 3) | (sfi >> 1), ((sfi & 1) << 7) | (ch << 3)]);
+}
+
+/* Demux just the audio track of a media file with mp4box. */
+async function demuxAudioTrack(media) {
+  if (typeof MP4Box === "undefined") throw new Error("mp4box unavailable");
+  const buffer = await media.file.arrayBuffer();
+  return await new Promise((resolve, reject) => {
+    const f = MP4Box.createFile();
+    let aTrack = null;
+    const samples = [];
+    const guard = setTimeout(() => reject(new Error("audio demux timeout")), 30000);
+    f.onError = (e) => { clearTimeout(guard); reject(new Error("mp4box: " + e)); };
+    f.onReady = (info) => {
+      aTrack = info.audioTracks && info.audioTracks[0];
+      if (!aTrack) { clearTimeout(guard); reject(new Error("no audio track")); return; }
+      f.setExtractionOptions(aTrack.id, null, { nbSamples: 100000 });
+      f.start();
+    };
+    f.onSamples = (id, user, batch) => {
+      for (const s of batch) samples.push({
+        data: s.data,
+        tsUs: Math.round((s.cts / s.timescale) * 1e6),
+        durUs: Math.max(1, Math.round((s.duration / s.timescale) * 1e6)),
+      });
+      if (aTrack && samples.length >= aTrack.nb_samples) {
+        clearTimeout(guard);
+        resolve({ codec: aTrack.codec, sampleRate: aTrack.audio.sample_rate, channels: aTrack.audio.channel_count || 2, samples });
+      }
+    };
+    buffer.fileStart = 0;
+    f.appendBuffer(buffer);
+    f.flush();
+  });
+}
+
+/* Decode a media file's audio via WebCodecs — used when decodeAudioData refuses a video
+   container (Safari/iOS). Returns an AudioBuffer in the given context, or throws. */
+async function decodeAudioViaWebCodecs(media, outCtx) {
+  if (typeof AudioDecoder === "undefined") throw new Error("no AudioDecoder");
+  const dem = await demuxAudioTrack(media);
+  const sr = dem.sampleRate, ch = Math.max(1, dem.channels);
+  let codec = dem.codec || "mp4a.40.2";
+  let description;
+  if (/^mp4a/.test(codec)) { codec = "mp4a.40.2"; description = aacASC(sr, ch); }
+  const channelChunks = Array.from({ length: ch }, () => []);
+  let totalFrames = 0, decErr = null;
+  const dec = new AudioDecoder({
+    output: (ad) => {
+      try {
+        const n = ad.numberOfFrames;
+        const fmt = ad.format || "f32-planar";
+        if (fmt.endsWith("-planar")) {
+          for (let c = 0; c < ch; c++) {
+            const arr = new Float32Array(n);
+            ad.copyTo(arr, { planeIndex: c, format: "f32-planar" });
+            channelChunks[c].push(arr);
+          }
+        } else {
+          const inter = new Float32Array(n * ch);
+          ad.copyTo(inter, { planeIndex: 0, format: "f32" });
+          for (let c = 0; c < ch; c++) {
+            const arr = new Float32Array(n);
+            for (let i = 0; i < n; i++) arr[i] = inter[i * ch + c];
+            channelChunks[c].push(arr);
+          }
+        }
+        totalFrames += n;
+      } catch (e) { decErr = e; }
+      ad.close();
+    },
+    error: (e) => { decErr = e; },
+  });
+  dec.configure({ codec, sampleRate: sr, numberOfChannels: ch, description });
+  for (const s of dem.samples) dec.decode(new EncodedAudioChunk({ type: "key", timestamp: s.tsUs, duration: s.durUs, data: s.data }));
+  await dec.flush();
+  try { dec.close(); } catch (e) {}
+  if (decErr) throw decErr;
+  if (!totalFrames) throw new Error("no audio frames decoded");
+  const out = outCtx.createBuffer(ch, totalFrames, sr);
+  for (let c = 0; c < ch; c++) {
+    const data = out.getChannelData(c);
+    let off = 0;
+    for (const seg of channelChunks[c]) { data.set(seg, off); off += seg.length; }
+  }
+  return out;
+}
+
 async function renderTimelineAudio(totalDur, sampleRate) {
   // audio-track clips + the embedded audio of video clips on visual tracks
   const sources = [...audioTrack().clips];
@@ -1872,7 +1967,11 @@ async function renderTimelineAudio(totalDur, sampleRate) {
     if (bufCache.has(m.id)) buf = bufCache.get(m.id);
     else {
       try { buf = await ctx.decodeAudioData(await m.file.arrayBuffer()); }
-      catch (e) { buf = null; console.warn("no decodable audio in", m.name, e); } // e.g. silent video
+      catch (e) {
+        // Safari refuses to decodeAudioData a *video* container — decode the audio via WebCodecs.
+        try { buf = await decodeAudioViaWebCodecs(m, ctx); }
+        catch (e2) { buf = null; console.warn("no decodable audio in", m.name, e, e2); }
+      }
       bufCache.set(m.id, buf);
     }
     if (!buf) continue;
