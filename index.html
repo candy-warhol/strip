@@ -119,7 +119,9 @@
   #preview-canvas{background:#000; position:static;}
   #overlay-canvas{
     touch-action:none; cursor:default;
-    /* extends beyond the stage so selection handles stay visible/grabbable at the edges */
+    /* spans the preview area around the stage so selection handles stay visible/grabbable
+       when a clip is dragged off the canvas. Exact geometry is set by resizeStage(); these
+       are just the initial-paint fallback. */
     inset:auto; left:-60px; top:-60px;
     width:calc(100% + 120px); height:calc(100% + 120px);
   }
@@ -1406,8 +1408,8 @@ const overlayCanvas = $("#overlay-canvas");
 const pctx = previewCanvas.getContext("2d");
 const octx = overlayCanvas.getContext("2d");
 let stageScale = 1; // CSS px per canvas px
-const OVERLAY_PAD_SCREEN = 60; // CSS px of handle headroom around the canvas (matches #overlay-canvas CSS)
-let overlayPad = 0;            // the same headroom in project px
+const OVERLAY_PAD_SCREEN = 60; // minimum CSS px of handle headroom around the canvas
+let overlayPadX = 0, overlayPadY = 0; // headroom in project px (per axis), set in resizeStage
 
 function resizeStage() {
   previewCanvas.width = project.width;
@@ -1418,12 +1420,27 @@ function resizeStage() {
   const availH = wrap.clientHeight - (OVERLAY_PAD_SCREEN * 2 + 16);
   stageScale = Math.min(availW / project.width, availH / project.height, 1);
   if (!isFinite(stageScale) || stageScale <= 0) stageScale = 0.1;
-  overlayPad = OVERLAY_PAD_SCREEN / stageScale;
-  overlayCanvas.width = Math.round(project.width + overlayPad * 2);
-  overlayCanvas.height = Math.round(project.height + overlayPad * 2);
+  const stageW = project.width * stageScale, stageH = project.height * stageScale;
+  // The selection overlay spans the entire preview area around the stage (not just a
+  // fixed 60px halo). A clip dragged off the canvas keeps its outline + handles visible
+  // anywhere in the preview, and clampClipIntoView keeps its center inside this region
+  // so the media can never be dragged out of view and "lost".
+  // halo per axis: fill the spare preview space, but never less than the min headroom
+  // nor more than one stage dimension (keeps the overlay canvas a sane size).
+  const padScreenX = clamp((wrap.clientWidth - stageW) / 2, OVERLAY_PAD_SCREEN, Math.max(OVERLAY_PAD_SCREEN, stageW));
+  const padScreenY = clamp((wrap.clientHeight - stageH) / 2, OVERLAY_PAD_SCREEN, Math.max(OVERLAY_PAD_SCREEN, stageH));
+  overlayPadX = padScreenX / stageScale;
+  overlayPadY = padScreenY / stageScale;
+  overlayCanvas.width = Math.round(project.width + overlayPadX * 2);
+  overlayCanvas.height = Math.round(project.height + overlayPadY * 2);
+  // position/size the overlay element to match its (now per-axis) overhang
+  overlayCanvas.style.left = -padScreenX + "px";
+  overlayCanvas.style.top = -padScreenY + "px";
+  overlayCanvas.style.width = (stageW + padScreenX * 2) + "px";
+  overlayCanvas.style.height = (stageH + padScreenY * 2) + "px";
   const stage = $("#stage");
-  stage.style.width = Math.round(project.width * stageScale) + "px";
-  stage.style.height = Math.round(project.height * stageScale) + "px";
+  stage.style.width = Math.round(stageW) + "px";
+  stage.style.height = Math.round(stageH) + "px";
   requestPreviewRedraw();
 }
 window.addEventListener("resize", resizeStage);
@@ -1577,9 +1594,9 @@ function rotHandlePos(clip, media) {
 }
 
 function drawSelectionOverlay() {
-  // origin shifted by overlayPad: everything below still draws in project coordinates
-  octx.setTransform(1, 0, 0, 1, overlayPad, overlayPad);
-  octx.clearRect(-overlayPad, -overlayPad, overlayCanvas.width, overlayCanvas.height);
+  // origin shifted by the overlay pad: everything below still draws in project coordinates
+  octx.setTransform(1, 0, 0, 1, overlayPadX, overlayPadY);
+  octx.clearRect(-overlayPadX, -overlayPadY, overlayCanvas.width, overlayCanvas.height);
   const sel = selectedClip();
   if (!sel || sel.track.type !== "visual") return;
   const t = playhead;
@@ -1611,9 +1628,17 @@ function drawSelectionOverlay() {
 function canvasPoint(e) {
   const rect = overlayCanvas.getBoundingClientRect();
   return [
-    (e.clientX - rect.left) / stageScale - overlayPad,
-    (e.clientY - rect.top) / stageScale - overlayPad,
+    (e.clientX - rect.left) / stageScale - overlayPadX,
+    (e.clientY - rect.top) / stageScale - overlayPadY,
   ];
+}
+
+/* Keep a clip's center inside the overlay region while moving it, so a clip dragged
+   off the canvas always keeps its outline + handles on-screen (and stays grabbable)
+   instead of vanishing past the preview edge where it can no longer be recovered. */
+function clampClipIntoView(clip) {
+  clip.x = clamp(clip.x, -overlayPadX, project.width + overlayPadX);
+  clip.y = clamp(clip.y, -overlayPadY, project.height + overlayPadY);
 }
 
 function pointInClip(px, py, clip, media) {
@@ -1690,6 +1715,7 @@ function updatePinch() {
   g.clip.rotation = g.base.rotation + (ang - g.ang0);
   g.clip.x = g.base.x + (mid.x - g.mid0.x);
   g.clip.y = g.base.y + (mid.y - g.mid0.y);
+  clampClipIntoView(g.clip);
   requestPreviewRedraw();
 }
 
@@ -1747,6 +1773,7 @@ overlayCanvas.addEventListener("pointermove", (e) => {
   if (g.action.kind === "move") {
     clip.x = orig.x + (px - orig.px);
     clip.y = orig.y + (py - orig.py);
+    clampClipIntoView(clip);
   } else if (g.action.kind === "scale") {
     const d = Math.hypot(px - clip.x, py - clip.y);
     clip.scale = Math.max(0.02, orig.scale * (d / g.startDist));
