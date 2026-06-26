@@ -401,6 +401,13 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
     </button>
     <button class="btn" id="new-track-btn" title="Add a video track">+ Track</button>
+    <span class="tb-sep"></span>
+    <button class="btn icon-btn" id="undo-btn" title="Undo (Ctrl/Cmd+Z)" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>
+    </button>
+    <button class="btn icon-btn" id="redo-btn" title="Redo (Ctrl/Cmd+Y)" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg>
+    </button>
     <span class="spacer"></span>
     <span>Zoom</span>
     <input type="range" id="zoom-slider" min="12" max="300" value="60">
@@ -621,11 +628,20 @@ function ingestFile(file, type) {
           videoEl: v, thumb: null,
         };
         resolve(item);
-        // try for a thumbnail afterwards, without blocking anything
-        v.onseeked = () => grabThumb(item);
-        if (v.readyState >= 2) grabThumb(item);
-        else v.addEventListener("loadeddata", () => grabThumb(item), { once: true });
-        try { v.currentTime = Math.min(0.1, (v.duration || 1) * 0.1); } catch (e) {}
+        // Grab ONE poster frame for the library, then stop listening. A persistent
+        // "seeked" handler here re-rendered the library on every playback/scrub seek,
+        // which made the clip look like it was playing inside the library panel.
+        let grabbed = false;
+        const grabOnce = () => {
+          if (grabbed) return;
+          grabbed = true;
+          clearTimeout(grabTimer);
+          v.removeEventListener("seeked", grabOnce);
+          grabThumb(item);
+        };
+        const grabTimer = setTimeout(grabOnce, 1500); // fallback if "seeked" never fires
+        v.addEventListener("seeked", grabOnce);
+        try { v.currentTime = Math.min(0.1, (v.duration || 1) * 0.1); } catch (e) { grabOnce(); }
       };
       v.src = url;
       const pool = document.getElementById("media-pool");
@@ -661,6 +677,11 @@ function removeMedia(id) {
     removedClips += before - t.clips.length;
   }
   if (selection && !findClip(selection.clipId)) selection = null;
+  // history snapshots could reference this media; drop them so undo can't resurrect
+  // clips whose media no longer exists
+  undoStack.length = 0;
+  redoStack.length = 0;
+  updateUndoRedoButtons();
   if (item.videoEl) { item.videoEl.pause(); item.videoEl.removeAttribute("src"); item.videoEl.load(); item.videoEl.remove(); }
   if (item.audioEl) { item.audioEl.pause(); item.audioEl.removeAttribute("src"); item.audioEl.load(); item.audioEl.remove(); }
   URL.revokeObjectURL(item.url); // avoid leaking object URLs
@@ -995,7 +1016,7 @@ function startLibraryDrag(e, media) {
     const duration = media.type === "image" ? 5 : (media.duration || 5);
     const snapped = snapTime(t, null);
     if (snapped != null) t = snapped;
-    dropNewClip(media, tr, t, duration);
+    dropNewClip(media, tr, t, duration); // library-drag drop: dropNewClip records history
   };
 
   window.addEventListener("pointermove", move);
@@ -1010,6 +1031,7 @@ function laneAtPoint(x, y) {
 /* Touch flow: tap a library item to drop it at the playhead (dragging from a
    bottom sheet is the interaction we're avoiding on mobile). */
 function addClipAtPlayhead(media) {
+  pushHistory(); // capture before any auto-created track + the new clip, so one undo reverts both
   let start = Math.max(0, playhead);
   const dur = media.type === "image" ? 5 : (media.duration || 5);
   let track;
@@ -1035,7 +1057,7 @@ function addClipAtPlayhead(media) {
         start = track.clips.reduce((mx, c) => Math.max(mx, c.startTime + c.duration), 0);
     }
   }
-  const clip = dropNewClip(media, track, start, dur);
+  const clip = dropNewClip(media, track, start, dur, true); // history already captured above
   if (clip) {
     seek(start);
     toast(`Added “${media.name}”.`);
@@ -1049,7 +1071,7 @@ function canDrop(media, track) {
   return track.type === "visual";
 }
 
-function dropNewClip(media, track, startTime, duration) {
+function dropNewClip(media, track, startTime, duration, skipHistory) {
   if (duration == null) duration = media.type === "image" ? 5 : (media.duration || 5);
   if (track.type === "audio" && audioOverlaps(startTime, duration, null)) {
     // single-active-audio rule: reject overlapping drops outright
@@ -1057,6 +1079,7 @@ function dropNewClip(media, track, startTime, duration) {
     return null;
   }
   // visual tracks allow overlapping clips — they composite together (later clip on top)
+  if (!skipHistory) pushHistory();
   const clip = {
     id: uid("clip"),
     mediaId: media.id,
@@ -1111,6 +1134,7 @@ function startClipDrag(e, track, clip, el) {
   const startX = e.clientX, startY = e.clientY;
   const orig = { startTime: clip.startTime, duration: clip.duration, sourceStart: clip.sourceStart };
   const origTrack = track;
+  const editCap = captureEdit(); // for undo: timeline state before this move/trim
   let moved = false;
 
   const maxSourceDur = media && media.duration ? media.duration : Infinity; // images: unbounded
@@ -1205,6 +1229,7 @@ function startClipDrag(e, track, clip, el) {
       if (elNow) elNow.classList.add("rejected");
       toast("Audio clips can't overlap — move reverted.", true);
     }
+    commitEdit(editCap); // record an undo step only if the clip actually moved/trimmed
     if (moved) requestPreviewRedraw();
   };
 
@@ -1227,6 +1252,7 @@ function moveClipToTrack(clip, target) {
 function deleteSelectedClip() {
   const sel = selectedClip();
   if (!sel) return;
+  pushHistory();
   sel.track.clips.splice(sel.track.clips.indexOf(sel.clip), 1);
   selection = null;
   hideClipBubble();
@@ -1334,6 +1360,7 @@ function addVisualTrack() {
     toast(`You can have at most ${MAX_VISUAL_TRACKS} video tracks.`, true);
     return;
   }
+  pushHistory();
   const track = { id: uid("trk"), type: "visual", clips: [] };
   // insert just before the audio track so it becomes the highest visual layer (top)
   tracks.splice(tracks.indexOf(audioTrack()), 0, track);
@@ -1345,6 +1372,129 @@ function addVisualTrack() {
 $("#new-track-btn").addEventListener("click", addVisualTrack);
 
 $("#del-clip-btn").addEventListener("click", deleteSelectedClip);
+
+/* =====================================================================
+   UNDO / REDO + CLIPBOARD (copy / paste clips)
+   History stores serialized snapshots of the timeline (tracks + clips +
+   selection). Snapshots are pushed *before* a mutating edit; undo restores
+   the previous snapshot, redo re-applies. Selection-only changes never
+   create history entries (compared via a tracks-only fingerprint).
+   ===================================================================== */
+const undoStack = [];
+const redoStack = [];
+const HISTORY_LIMIT = 80;
+let clipboard = null;
+
+function snapshotState() {
+  return JSON.stringify({
+    tracks: tracks.map((t) => ({ id: t.id, type: t.type, clips: t.clips.map((c) => ({ ...c })) })),
+    selection: selection ? { ...selection } : null,
+  });
+}
+// tracks/clips only (no selection) — used to decide whether an edit actually changed anything
+function tracksFingerprint() {
+  return JSON.stringify(tracks.map((t) => ({ id: t.id, type: t.type, clips: t.clips.map((c) => ({ ...c })) })));
+}
+
+function pushHistorySnapshot(snap) {
+  undoStack.push(snap);
+  if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
+  redoStack.length = 0;
+  updateUndoRedoButtons();
+}
+// capture the current timeline state for the next mutating edit
+function pushHistory() { pushHistorySnapshot(snapshotState()); }
+
+// for drag/transform gestures: grab a "before" capture, commit it only if something changed
+function captureEdit() { return { full: snapshotState(), finger: tracksFingerprint() }; }
+function commitEdit(cap) { if (cap && tracksFingerprint() !== cap.finger) pushHistorySnapshot(cap.full); }
+
+function restoreState(snap) {
+  const s = JSON.parse(snap);
+  tracks.length = 0;
+  for (const t of s.tracks) tracks.push({ id: t.id, type: t.type, clips: t.clips.map((c) => ({ ...c })) });
+  selection = s.selection && findClip(s.selection.clipId) ? s.selection : null;
+  renderTimeline();
+  syncMediaElements(true);
+  requestPreviewRedraw();
+  updateUndoRedoButtons();
+}
+
+function undo() {
+  if (!undoStack.length) return;
+  redoStack.push(snapshotState());
+  restoreState(undoStack.pop());
+}
+function redo() {
+  if (!redoStack.length) return;
+  undoStack.push(snapshotState());
+  restoreState(redoStack.pop());
+}
+
+function updateUndoRedoButtons() {
+  const u = $("#undo-btn"), r = $("#redo-btn");
+  if (u) u.disabled = undoStack.length === 0;
+  if (r) r.disabled = redoStack.length === 0;
+}
+$("#undo-btn").addEventListener("click", undo);
+$("#redo-btn").addEventListener("click", redo);
+updateUndoRedoButtons();
+
+/* ---- copy / paste a clip ---- */
+function copySelectedClip() {
+  const sel = selectedClip();
+  if (!sel) return;
+  const c = sel.clip;
+  clipboard = {
+    mediaId: c.mediaId, trackId: sel.track.id, trackType: sel.track.type,
+    duration: c.duration, sourceStart: c.sourceStart || 0,
+    x: c.x, y: c.y, scale: c.scale, rotation: c.rotation,
+  };
+  const m = mediaById(c.mediaId);
+  toast(`Copied “${m ? m.name : "clip"}” — Ctrl/Cmd+V to paste.`);
+}
+
+function pasteClipboard() {
+  if (!clipboard) return;
+  const data = clipboard;
+  const media = mediaById(data.mediaId);
+  if (!media) { toast("Can't paste — that media was removed from the library.", true); return; }
+
+  // pick a target track: audio → the audio track; visual → the selected/original
+  // visual track, else the top visual track
+  let track;
+  if (data.trackType === "audio") {
+    track = audioTrack();
+  } else {
+    const sel = selectedClip();
+    track = (sel && sel.track.type === "visual") ? sel.track
+      : tracks.find((t) => t.id === data.trackId && t.type === "visual")
+      || visualTracks()[visualTracks().length - 1];
+  }
+  if (!track) return;
+
+  let start = Math.max(0, playhead);
+  const dur = data.duration;
+  // audio stays exclusive: if the playhead spot is taken, park after the last audio clip
+  if (track.type === "audio" && audioOverlaps(start, dur, null)) {
+    start = track.clips.reduce((mx, c) => Math.max(mx, c.startTime + c.duration), 0);
+  }
+
+  pushHistory();
+  const clip = {
+    id: uid("clip"), mediaId: data.mediaId,
+    startTime: start, duration: dur, sourceStart: data.sourceStart || 0,
+  };
+  if (track.type === "visual") {
+    clip.x = data.x; clip.y = data.y; clip.scale = data.scale; clip.rotation = data.rotation;
+  }
+  track.clips.push(clip);
+  selection = { trackId: track.id, clipId: clip.id };
+  renderTimeline();
+  seek(start);
+  requestPreviewRedraw();
+  toast(`Pasted “${media.name}”.`);
+}
 </script>
 <script>
 "use strict";
@@ -1513,6 +1663,17 @@ $("#scrubber").addEventListener("input", (e) => seek(+e.target.value));
 
 window.addEventListener("keydown", (e) => {
   if (e.target.matches("input, select, textarea")) return;
+
+  // editor shortcuts: Ctrl/Cmd + Z/Y (undo/redo) and C/V (copy/paste clips)
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod) {
+    const k = e.key.toLowerCase();
+    if (k === "z") { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
+    if (k === "y") { e.preventDefault(); redo(); return; }
+    if (k === "c") { e.preventDefault(); copySelectedClip(); return; }
+    if (k === "v") { e.preventDefault(); pasteClipboard(); return; }
+  }
+
   if (e.code === "Space") { e.preventDefault(); setPlaying(!playing); }
   else if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteSelectedClip(); }
   else if (e.key === "ArrowLeft") seek(playhead - (e.shiftKey ? 1 : 1 / 60));
@@ -1684,6 +1845,7 @@ function topmostClipAt(px, py) {
 const ovPtrs = new Map();   // pointerId -> {x, y} in project coords
 let dragGesture = null;     // single-pointer move/scale/rotate
 let pinchGesture = null;    // two-finger transform
+let canvasEditCap = null;   // undo capture spanning a canvas transform gesture
 
 function beginPinch() {
   const sel = selectedClip();
@@ -1726,7 +1888,7 @@ overlayCanvas.addEventListener("pointerdown", (e) => {
   overlayCanvas.setPointerCapture(e.pointerId);
 
   // second finger → switch to pinch/rotate on the selected clip
-  if (ovPtrs.size === 2) { e.preventDefault(); beginPinch(); return; }
+  if (ovPtrs.size === 2) { e.preventDefault(); if (!canvasEditCap) canvasEditCap = captureEdit(); beginPinch(); return; }
   if (ovPtrs.size > 2) return;
 
   // first finger / mouse → hit-test for drag, scale, or rotate
@@ -1743,6 +1905,7 @@ overlayCanvas.addEventListener("pointerdown", (e) => {
   if (!sel) return;
   e.preventDefault();
   const clip = sel.clip;
+  if (!canvasEditCap) canvasEditCap = captureEdit(); // undo capture for this transform gesture
   dragGesture = {
     action, clip,
     orig: { x: clip.x, y: clip.y, scale: clip.scale, rotation: clip.rotation, px, py },
@@ -1794,6 +1957,8 @@ function endOverlayPointer(e) {
   if (ovPtrs.size === 0) dragGesture = null;
   // if one finger remains after a pinch, don't resurrect a stale drag
   if (ovPtrs.size === 1 && !pinchGesture) dragGesture = null;
+  // gesture fully ended → record one undo step if the transform changed anything
+  if (ovPtrs.size === 0) { commitEdit(canvasEditCap); canvasEditCap = null; }
 }
 overlayCanvas.addEventListener("pointerup", endOverlayPointer);
 overlayCanvas.addEventListener("pointercancel", endOverlayPointer);
