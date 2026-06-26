@@ -10,8 +10,9 @@ Lightweight, browser-based video editor in a single HTML file. No install, no se
 ### Features
 
 ▶ Import MP4, MOV, WAV, MP3, PNG, JPG\
-▶ Multi-track timeline — drag, trim, snap\
+▶ Multi-track timeline — drag, trim, snap, add tracks\
 ▶ Move / scale / rotate clips on the canvas (pinch & twist on touch)\
+▶ Undo / redo (Ctrl/Cmd+Z, Ctrl/Cmd+Y) and copy / paste clips (Ctrl/Cmd+C, Ctrl/Cmd+V)\
 ▶ 60 fps MP4 export, composited in the browser
 
 ### Notes
