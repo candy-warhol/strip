@@ -13,7 +13,10 @@ Lightweight, browser-based video editor in a single HTML file. No install, no se
 ▶ Edit images in the library — crop & one-click background removal\
 ▶ Multi-track timeline — drag, trim, snap, add tracks\
 ▶ Move / scale / rotate clips on the canvas (pinch & twist on touch)\
-▶ Per-clip video effects (FX) — one-click looks (B&W, Noir, Vintage, Vivid, Cool, Warm, Dreamy, Invert) plus fine sliders (brightness, contrast, saturation, hue, grayscale, sepia, invert, blur, opacity), shown live in the preview and baked into the export\
+▶ Per-clip video effects (FX) — one-click looks (B&W, Noir, Vintage, Vivid, Cool, Warm, Dreamy, Invert) plus fine sliders (brightness, contrast, saturation, hue, grayscale, sepia, invert, blur, opacity)\
+▶ Transitions — per-clip fade in / fade out; overlap two clips and fade them for a cross-dissolve\
+▶ Blend modes — multiply, screen, overlay, lighten, darken, color-dodge, hard-light, difference, add\
+▶ Motion presets — animated zoom in/out, pan, and Ken Burns; all of the above shown live in the preview and baked into the export\
 ▶ Undo / redo (Ctrl/Cmd+Z, Ctrl/Cmd+Y) and copy / paste clips (Ctrl/Cmd+C, Ctrl/Cmd+V)\
 ▶ 60 fps MP4 export, composited in the browser
 

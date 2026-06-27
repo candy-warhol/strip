@@ -412,6 +412,20 @@
     width:12px; height:12px; border:none; border-radius:50%; background:var(--accent); cursor:pointer;
   }
   .fx-val{font-family:var(--mono); font-size:10px; color:var(--ink-dim); text-align:right;}
+  .fx-sep{height:1px; background:var(--line); margin:1px 0;}
+  .fx-subhead{font-size:10px; text-transform:uppercase; letter-spacing:.1em; color:var(--ink-faint);}
+  .fx-selects{display:flex; flex-direction:column; gap:7px;}
+  .fx-selrow{display:grid; grid-template-columns:62px 1fr; align-items:center; gap:8px;}
+  .fx-selrow > label{font-size:11px; color:var(--ink-dim);}
+  .fx-selrow select{
+    width:100%; font-size:11px; color:var(--ink); background:var(--panel-2);
+    border:1px solid var(--line); border-radius:var(--radius); padding:4px 6px; cursor:pointer;
+  }
+  .clip-fx-badge{
+    position:absolute; top:3px; right:4px; z-index:2; pointer-events:none;
+    font-family:var(--mono); font-size:8px; letter-spacing:.06em; line-height:1;
+    padding:2px 3px; border-radius:3px; color:var(--accent-ink); background:var(--accent);
+  }
   .fx-foot{display:flex; justify-content:flex-end;}
   @media (max-width: 640px){
     #fx-panel{width:calc(100vw - 24px); max-width:300px;}
@@ -508,6 +522,10 @@
   </div>
   <div class="fx-presets" id="fx-presets"></div>
   <div class="fx-sliders" id="fx-sliders"></div>
+  <div class="fx-sep"></div>
+  <div class="fx-subhead">Transition &amp; motion</div>
+  <div class="fx-sliders" id="fx-transition"></div>
+  <div class="fx-selects" id="fx-selects"></div>
   <div class="fx-foot"><button class="btn" id="fx-reset" type="button">Reset all</button></div>
 </div>
 <div id="drag-ghost"></div>
@@ -1057,6 +1075,14 @@ function renderTimeline() {
       name.textContent = m ? m.name : "missing media";
       el.appendChild(name);
 
+      if (clipHasFx(clip)) {
+        const badge = document.createElement("span");
+        badge.className = "clip-fx-badge";
+        badge.textContent = "FX";
+        badge.title = "Has effects / transition";
+        el.appendChild(badge);
+      }
+
       const hl = document.createElement("div");
       hl.className = "clip-handle l";
       const hr = document.createElement("div");
@@ -1569,6 +1595,7 @@ function copySelectedClip() {
     duration: c.duration, sourceStart: c.sourceStart || 0,
     x: c.x, y: c.y, scale: c.scale, rotation: c.rotation,
     effects: c.effects ? { ...c.effects } : null,
+    fadeIn: c.fadeIn || 0, fadeOut: c.fadeOut || 0, blend: c.blend || null, motion: c.motion || null,
   };
   const m = mediaById(c.mediaId);
   toast(`Copied “${m ? m.name : "clip"}” — Ctrl/Cmd+V to paste.`);
@@ -1608,6 +1635,10 @@ function pasteClipboard() {
   if (track.type === "visual") {
     clip.x = data.x; clip.y = data.y; clip.scale = data.scale; clip.rotation = data.rotation;
     if (data.effects) clip.effects = { ...data.effects };
+    if (data.fadeIn) clip.fadeIn = data.fadeIn;
+    if (data.fadeOut) clip.fadeOut = data.fadeOut;
+    if (data.blend) clip.blend = data.blend;
+    if (data.motion) clip.motion = data.motion;
   }
   track.clips.push(clip);
   selection = { trackId: track.id, clipId: clip.id };
@@ -1665,6 +1696,66 @@ function buildFilterString(fx) {
   return parts.join(" ");
 }
 
+/* ---------------- transitions, blend modes, motion ----------------
+   These are separate top-level clip props (not part of clip.effects):
+     clip.fadeIn / clip.fadeOut  — seconds; ramp opacity at the clip's edges.
+                                   Overlap two clips + fade them = a cross-dissolve.
+     clip.blend                  — a canvas globalCompositeOperation: how this
+                                   clip blends with whatever is drawn beneath it.
+     clip.motion                 — an animated pan/zoom preset, evaluated from the
+                                   clip's progress so preview and export match.
+   All three are read by renderFrameAt (a later <script>), so the helpers are
+   hoisted function declarations. */
+const FADE_DEFS = [
+  { key: "fadeIn",  label: "Fade in",  min: 0, max: 3, step: 0.05, def: 0, unit: "s" },
+  { key: "fadeOut", label: "Fade out", min: 0, max: 3, step: 0.05, def: 0, unit: "s" },
+];
+const FADE_BY_KEY = Object.fromEntries(FADE_DEFS.map((d) => [d.key, d]));
+const BLEND_MODES = [
+  ["source-over", "Normal"], ["multiply", "Multiply"], ["screen", "Screen"],
+  ["overlay", "Overlay"], ["lighten", "Lighten"], ["darken", "Darken"],
+  ["color-dodge", "Color dodge"], ["hard-light", "Hard light"],
+  ["difference", "Difference"], ["lighter", "Add"],
+];
+const MOTION_PRESETS = [
+  ["none", "None"], ["zoomIn", "Zoom in"], ["zoomOut", "Zoom out"],
+  ["panLeft", "Pan left"], ["panRight", "Pan right"], ["kenBurns", "Ken Burns"],
+];
+
+// Opacity multiplier from the clip's fade-in / fade-out ramps at time t.
+function clipFadeAlpha(clip, t) {
+  let a = 1;
+  const fi = clip.fadeIn || 0, fo = clip.fadeOut || 0;
+  if (fi > 0) a *= clamp((t - clip.startTime) / fi, 0, 1);
+  if (fo > 0) a *= clamp((clip.startTime + clip.duration - t) / fo, 0, 1);
+  return a;
+}
+
+// Animated pan/zoom for a clip at time t → { scaleMul, dx, dy } (or null when off).
+// Pans bump scale a touch so the frame edges never expose the black background.
+function clipMotion(clip, t) {
+  const m = clip.motion;
+  if (!m || m === "none") return null;
+  const p = clamp((t - clip.startTime) / (clip.duration || 1), 0, 1);
+  const mix = (a, b) => a + (b - a) * p;
+  const pan = 0.07 * project.width;
+  switch (m) {
+    case "zoomIn":   return { scaleMul: mix(1.0, 1.18), dx: 0, dy: 0 };
+    case "zoomOut":  return { scaleMul: mix(1.18, 1.0), dx: 0, dy: 0 };
+    case "panLeft":  return { scaleMul: 1.12, dx: mix(pan, -pan), dy: 0 };
+    case "panRight": return { scaleMul: 1.12, dx: mix(-pan, pan), dy: 0 };
+    case "kenBurns": return { scaleMul: mix(1.04, 1.20), dx: mix(pan * 0.4, -pan * 0.4), dy: mix(pan * 0.2, -pan * 0.2) };
+    default:         return null;
+  }
+}
+
+// Any non-default look/transition/motion on this clip? (drives the timeline badge)
+function clipHasFx(clip) {
+  return !!(clip.effects || clip.fadeIn || clip.fadeOut ||
+    (clip.blend && clip.blend !== "source-over") ||
+    (clip.motion && clip.motion !== "none"));
+}
+
 /* ---------------- effects panel UI ---------------- */
 let fxPanelOpen = false;
 let fxEditCap = null;   // one undo entry per slider drag (lazy-captured on first input)
@@ -1680,6 +1771,7 @@ function normalizeEffects(clip) {
 function fmtEffectVal(d, v) {
   if (d.unit === "deg") return Math.round(v) + "°";
   if (d.unit === "px") return v.toFixed(1).replace(/\.0$/, "") + "px";
+  if (d.unit === "s") return (+(+v).toFixed(2)) + "s";
   return Number(v).toFixed(2);
 }
 
@@ -1696,6 +1788,58 @@ function effectsMatchPreset(clip, preset) {
   return true;
 }
 
+// A clip's current value for a control: effects-target reads clip.effects[key],
+// clip-target reads clip[key]; both fall back to the control's default.
+function readControl(clip, d, target) {
+  const src = target === "effects" ? clip.effects : clip;
+  return (src && src[d.key] != null) ? src[d.key] : d.def;
+}
+// Write a control's value back, deleting keys that fall to their default so a
+// "clean" clip stays minimal (and presets/badges detect it correctly).
+function writeControl(clip, d, target, v) {
+  if (target === "effects") {
+    if (!clip.effects) clip.effects = {};
+    if (v === d.def) delete clip.effects[d.key]; else clip.effects[d.key] = v;
+    normalizeEffects(clip);
+  } else {
+    if (v === d.def) delete clip[d.key]; else clip[d.key] = v;
+  }
+}
+
+function makeSliderRow(d, target, wrap) {
+  const row = document.createElement("div");
+  row.className = "fx-row";
+  const lab = document.createElement("label");
+  lab.textContent = d.label;
+  const inp = document.createElement("input");
+  inp.type = "range";
+  inp.min = d.min; inp.max = d.max; inp.step = d.step;
+  inp.dataset.key = d.key; inp.dataset.target = target;
+  const val = document.createElement("span");
+  val.className = "fx-val";
+  inp.addEventListener("input", () => onSliderInput(d, inp, target));
+  inp.addEventListener("change", () => { if (fxEditCap) { commitEdit(fxEditCap); fxEditCap = null; } });
+  row.append(lab, inp, val);
+  wrap.appendChild(row);
+}
+
+function makeSelectRow(key, label, options, wrap) {
+  const row = document.createElement("div");
+  row.className = "fx-selrow";
+  const lab = document.createElement("label");
+  lab.textContent = label;
+  const sel = document.createElement("select");
+  sel.dataset.key = key;
+  for (const [value, text] of options) {
+    const o = document.createElement("option");
+    o.value = value; o.textContent = text;
+    sel.appendChild(o);
+  }
+  sel.addEventListener("change", () => onSelectChange(key, sel));
+  row.append(lab, sel);
+  wrap.appendChild(row);
+}
+
 function buildFxControls() {
   const presetWrap = $("#fx-presets");
   for (const p of FX_PRESETS) {
@@ -1708,36 +1852,33 @@ function buildFxControls() {
     presetWrap.appendChild(b);
   }
   const slidersWrap = $("#fx-sliders");
-  for (const d of EFFECT_DEFS) {
-    const row = document.createElement("div");
-    row.className = "fx-row";
-    const lab = document.createElement("label");
-    lab.textContent = d.label;
-    const inp = document.createElement("input");
-    inp.type = "range";
-    inp.min = d.min; inp.max = d.max; inp.step = d.step;
-    inp.dataset.key = d.key;
-    const val = document.createElement("span");
-    val.className = "fx-val";
-    inp.addEventListener("input", () => onSliderInput(d, inp));
-    inp.addEventListener("change", () => { if (fxEditCap) { commitEdit(fxEditCap); fxEditCap = null; } });
-    row.append(lab, inp, val);
-    slidersWrap.appendChild(row);
-  }
+  for (const d of EFFECT_DEFS) makeSliderRow(d, "effects", slidersWrap);
+  const transWrap = $("#fx-transition");
+  for (const d of FADE_DEFS) makeSliderRow(d, "clip", transWrap);
+  const selWrap = $("#fx-selects");
+  makeSelectRow("blend", "Blend", BLEND_MODES, selWrap);
+  makeSelectRow("motion", "Motion", MOTION_PRESETS, selWrap);
 }
 
-function onSliderInput(d, inp) {
+function onSliderInput(d, inp, target) {
   const sel = selectedClip();
   if (!sel || sel.track.type !== "visual") return;
   if (!fxEditCap) fxEditCap = captureEdit();   // capture "before" once per drag
-  const v = +inp.value;
-  if (!sel.clip.effects) sel.clip.effects = {};
-  if (v === d.def) delete sel.clip.effects[d.key];
-  else sel.clip.effects[d.key] = v;
-  normalizeEffects(sel.clip);
+  writeControl(sel.clip, d, target, +inp.value);
   syncFxLabels(sel.clip);
   syncPresetActive(sel.clip);
   requestPreviewRedraw();
+}
+
+function onSelectChange(key, sel) {
+  const c = selectedClip();
+  if (!c || c.track.type !== "visual") return;
+  pushHistory();
+  const v = sel.value;
+  if (v === "source-over" || v === "none") delete c.clip[key];
+  else c.clip[key] = v;
+  requestPreviewRedraw();
+  renderTimeline();
 }
 
 function applyPreset(p) {
@@ -1750,19 +1891,21 @@ function applyPreset(p) {
   renderTimeline();
 }
 
-// Reflect a clip's effects onto every slider + label + preset chip.
+// Reflect a clip's whole state onto every slider, select, label, and preset chip.
 function syncFxControls(clip) {
-  for (const inp of $("#fx-sliders").querySelectorAll("input[type=range]")) {
-    const d = EFFECT_BY_KEY[inp.dataset.key];
-    inp.value = (clip.effects && clip.effects[d.key] != null) ? clip.effects[d.key] : d.def;
+  for (const inp of $("#fx-panel").querySelectorAll("input[type=range]")) {
+    const d = (inp.dataset.target === "effects" ? EFFECT_BY_KEY : FADE_BY_KEY)[inp.dataset.key];
+    inp.value = readControl(clip, d, inp.dataset.target);
   }
+  $("#fx-selects").querySelector('select[data-key="blend"]').value = clip.blend || "source-over";
+  $("#fx-selects").querySelector('select[data-key="motion"]').value = clip.motion || "none";
   syncFxLabels(clip);
   syncPresetActive(clip);
 }
 function syncFxLabels(clip) {
-  for (const inp of $("#fx-sliders").querySelectorAll("input[type=range]")) {
-    const d = EFFECT_BY_KEY[inp.dataset.key];
-    const v = (clip.effects && clip.effects[d.key] != null) ? clip.effects[d.key] : d.def;
+  for (const inp of $("#fx-panel").querySelectorAll("input[type=range]")) {
+    const d = (inp.dataset.target === "effects" ? EFFECT_BY_KEY : FADE_BY_KEY)[inp.dataset.key];
+    const v = readControl(clip, d, inp.dataset.target);
     inp.parentElement.querySelector(".fx-val").textContent = fmtEffectVal(d, v);
   }
 }
@@ -1869,17 +2012,24 @@ function renderFrameAt(t, ctx, frameSource) {
           h = drawable.displayHeight || media.width;
         }
       }
+      const motion = clipMotion(clip, t);   // animated pan/zoom (or null)
+      const sMul = motion ? motion.scaleMul : 1;
       ctx.save();
-      ctx.translate(clip.x, clip.y);
+      ctx.translate(clip.x + (motion ? motion.dx : 0), clip.y + (motion ? motion.dy : 0));
       ctx.rotate(clip.rotation);
-      ctx.scale(clip.scale, clip.scale);
+      ctx.scale(clip.scale * sMul, clip.scale * sMul);
       if (vrot) ctx.rotate(vrot * Math.PI / 180);
+      // how this clip composites onto everything beneath it
+      if (clip.blend && clip.blend !== "source-over") ctx.globalCompositeOperation = clip.blend;
+      // final opacity = transition fade × the effect's opacity slider
+      let alpha = clipFadeAlpha(clip, t);
       const fx = clip.effects;
       if (fx) {
         const f = buildFilterString(fx);
         if (f) ctx.filter = f;
-        if (fx.opacity != null && fx.opacity < 1) ctx.globalAlpha = clamp(fx.opacity, 0, 1);
+        if (fx.opacity != null) alpha *= clamp(fx.opacity, 0, 1);
       }
+      if (alpha < 1) ctx.globalAlpha = clamp(alpha, 0, 1);
       try { ctx.drawImage(drawable, -w / 2, -h / 2, w, h); } catch (err) { /* not ready yet */ }
       ctx.restore();
     }
