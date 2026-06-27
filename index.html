@@ -300,6 +300,8 @@
   }
   #img-editor-canvas{display:block; max-width:100%; max-height:54vh; touch-action:none; cursor:crosshair;}
   #img-editor-tools{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+  #img-strength-wrap{display:none; align-items:center; gap:7px; font-size:11px; color:var(--ink-dim);}
+  #img-strength{width:120px; accent-color:var(--accent);}
   #img-editor-hint{font-size:11px; color:var(--ink-faint);}
   #img-editor-status{font-size:11px; color:var(--ink-dim); margin-left:auto;}
   #img-editor-status.busy{color:var(--accent);}
@@ -556,6 +558,10 @@
     <div id="img-editor-tools">
       <button class="btn" id="img-bg-btn" title="Isolate the subject and remove the background">Remove background</button>
       <button class="btn" id="img-reset-btn" title="Discard edits and start over">Reset</button>
+      <label id="img-strength-wrap" title="Lower keeps more of the subject; higher removes more">
+        <span>Removal</span>
+        <input type="range" id="img-strength" min="0" max="100" value="50">
+      </label>
       <span id="img-editor-hint">Drag the corners or inside the box to crop.</span>
       <span id="img-editor-status"></span>
     </div>
@@ -3305,6 +3311,7 @@ function openImageEditor(media) {
   imgEditor.work = work;
   imgEditor.crop = { x: 0, y: 0, w, h };
   imgEditor.drag = null;
+  clearMatte(); // no background-removal matte yet; hides the strength slider
   $("#img-editor-name").textContent = media.name;
   imgEditorStatus("", false);
   setImgEditorBusy(false);
@@ -3453,28 +3460,97 @@ function loadBgRemoval() {
   return bgRemovalP;
 }
 
+function cloneCanvas(src) {
+  const c = document.createElement("canvas");
+  c.width = src.width; c.height = src.height;
+  c.getContext("2d").drawImage(src, 0, 0);
+  return c;
+}
+
+function showStrengthSlider(show) {
+  const wrap = $("#img-strength-wrap");
+  if (wrap) wrap.style.display = show ? "flex" : "none";
+  const hint = $("#img-editor-hint");
+  if (hint) hint.style.display = show ? "none" : "";
+}
+
+function clearMatte() {
+  imgEditor.matteBase = null;
+  imgEditor.conf = null;
+  showStrengthSlider(false);
+}
+
+/* Build a per-pixel foreground-confidence map (0..255) from the model's
+   returned image. Robust to whether it gave a grayscale matte (use luminance)
+   or an alpha cutout (use alpha), and auto-orients so high = subject by
+   sampling the corners, which are virtually always background. */
+function confidenceFromMask(maskCanvas) {
+  const w = maskCanvas.width, h = maskCanvas.height, n = w * h;
+  const data = maskCanvas.getContext("2d").getImageData(0, 0, w, h).data;
+  const conf = new Uint8ClampedArray(n);
+  let alphaVaries = false;
+  for (let i = 0; i < n; i++) { if (data[i * 4 + 3] < 250) { alphaVaries = true; break; } }
+  for (let i = 0; i < n; i++) {
+    conf[i] = alphaVaries ? data[i * 4 + 3]
+      : (data[i * 4] * 0.299 + data[i * 4 + 1] * 0.587 + data[i * 4 + 2] * 0.114);
+  }
+  const corners = [0, w - 1, (h - 1) * w, n - 1];
+  let cs = 0; for (const k of corners) cs += conf[k]; cs /= corners.length;
+  if (cs > 127) for (let i = 0; i < n; i++) conf[i] = 255 - conf[i]; // invert: corners are background
+  return conf;
+}
+
+/* Re-composite matteBase using the confidence map + current threshold, with a
+   soft edge. Cheap enough to run live while dragging the strength slider. */
+function recompositeMatte() {
+  const base = imgEditor.matteBase, conf = imgEditor.conf;
+  if (!base || !conf) return;
+  const w = base.width, h = base.height, n = w * h;
+  const img = base.getContext("2d").getImageData(0, 0, w, h); // fresh copy each call
+  const d = img.data;
+  const T = imgEditor.threshold * 255, soft = 20, lo = T - soft, span = soft * 2;
+  for (let i = 0; i < n; i++) {
+    const c = conf[i];
+    let a;
+    if (c <= lo) a = 0; else if (c >= lo + span) a = 255; else a = (c - lo) / span * 255;
+    d[i * 4 + 3] = Math.round(d[i * 4 + 3] * a / 255); // keep any pre-existing alpha
+  }
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  c.getContext("2d").putImageData(img, 0, 0);
+  imgEditor.work = c;
+  drawImageEditor();
+}
+
 $("#img-bg-btn").addEventListener("click", async () => {
   if (!imgEditor.open || imgEditor.busy || !imgEditor.work) return;
   setImgEditorBusy(true);
   imgEditorStatus("Loading background remover…", true);
   try {
     const { removeBackground } = await loadBgRemoval();
+    const base = cloneCanvas(imgEditor.work); // the pixels we'll cut from
     const srcBlob = await new Promise((res, rej) =>
-      imgEditor.work.toBlob((b) => (b ? res(b) : rej(new Error("encode failed"))), "image/png"));
-    const outBlob = await removeBackground(srcBlob, {
+      base.toBlob((b) => (b ? res(b) : rej(new Error("encode failed"))), "image/png"));
+    // ask for the soft alpha MATTE (not a baked cutout) so the slider can fine-tune it
+    const maskBlob = await removeBackground(srcBlob, {
+      output: { type: "mask", format: "image/png" },
       progress: (key, cur, total) => {
         if (/fetch|download/i.test(String(key))) imgEditorStatus(`Downloading model… ${total ? Math.round(cur / total * 100) + "%" : ""}`, true);
         else imgEditorStatus("Isolating subject…", true);
       },
     });
-    const bmp = await createImageBitmap(outBlob);
-    const c = document.createElement("canvas");
-    c.width = bmp.width; c.height = bmp.height;
-    c.getContext("2d").drawImage(bmp, 0, 0);
+    const bmp = await createImageBitmap(maskBlob);
+    const mcv = document.createElement("canvas");
+    mcv.width = base.width; mcv.height = base.height;          // normalize mask to base size
+    mcv.getContext("2d").drawImage(bmp, 0, 0, base.width, base.height);
     if (bmp.close) bmp.close();
-    imgEditor.work = c; // same pixel dimensions, now with the background cut out
-    drawImageEditor();
-    imgEditorStatus("Background removed.", false);
+    imgEditor.matteBase = base;
+    imgEditor.conf = confidenceFromMask(mcv);
+    imgEditor.threshold = 0.5;
+    $("#img-strength").value = 50;
+    showStrengthSlider(true);
+    recompositeMatte();
+    imgEditorStatus("Background removed — drag “Removal” to fine-tune.", false);
   } catch (err) {
     console.error(err);
     imgEditorStatus("", false);
@@ -3482,6 +3558,12 @@ $("#img-bg-btn").addEventListener("click", async () => {
   } finally {
     setImgEditorBusy(false);
   }
+});
+
+let strengthRaf = 0;
+$("#img-strength").addEventListener("input", (e) => {
+  imgEditor.threshold = clamp((+e.target.value) / 100, 0, 1);
+  if (!strengthRaf) strengthRaf = requestAnimationFrame(() => { strengthRaf = 0; recompositeMatte(); });
 });
 
 $("#img-reset-btn").addEventListener("click", () => {
