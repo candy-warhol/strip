@@ -10,6 +10,7 @@ Lightweight, browser-based video editor in a single HTML file. No install, no se
 ### Features
 
 ▶ Import MP4, MOV, WAV, MP3, PNG, JPG\
+▶ Edit images in the library — crop & one-click background removal\
 ▶ Multi-track timeline — drag, trim, snap, add tracks\
 ▶ Move / scale / rotate clips on the canvas (pinch & twist on touch)\
 ▶ Undo / redo (Ctrl/Cmd+Z, Ctrl/Cmd+Y) and copy / paste clips (Ctrl/Cmd+C, Ctrl/Cmd+V)\
@@ -17,4 +18,5 @@ Lightweight, browser-based video editor in a single HTML file. No install, no se
 
 ### Notes
 Editing works in any modern browser. Export needs WebCodecs — Chrome, Edge, or Safari 26+, plus an internet connection (it loads two libraries from a CDN). Firefox exports video without audio.
+Background removal runs on your device but downloads its model from a CDN the first time, so it needs an internet connection; cropping works fully offline.
 To run locally, just open index.html in a browser.
