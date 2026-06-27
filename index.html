@@ -377,6 +377,45 @@
   @media (prefers-reduced-motion: reduce){
     *{animation:none !important; transition:none !important;}
   }
+
+  /* ---- effects / filters panel ---- */
+  #fx-btn.active{border-color:var(--accent); color:var(--accent);}
+  #fx-panel{
+    position:fixed; z-index:90; display:none; flex-direction:column; gap:11px;
+    width:264px; padding:13px; background:var(--panel);
+    border:1px solid var(--line); border-radius:8px;
+    box-shadow:0 14px 36px rgba(0,0,0,.6);
+  }
+  #fx-panel.open{display:flex;}
+  .fx-head{display:flex; align-items:center; justify-content:space-between;}
+  .fx-title{font-size:11px; text-transform:uppercase; letter-spacing:.12em; color:var(--ink-dim);}
+  .fx-close{color:var(--ink-dim); font-size:13px; line-height:1; padding:2px 5px; border-radius:var(--radius);}
+  .fx-close:hover{color:var(--ink); background:var(--panel-2);}
+  .fx-presets{display:grid; grid-template-columns:repeat(3, 1fr); gap:6px;}
+  .fx-preset{
+    border:1px solid var(--line); border-radius:var(--radius); background:var(--panel-2);
+    color:var(--ink); font-size:11px; padding:6px 3px; text-align:center; white-space:nowrap;
+  }
+  .fx-preset:hover{border-color:var(--ink-faint);}
+  .fx-preset.active{border-color:var(--accent); color:var(--accent);}
+  .fx-sliders{display:flex; flex-direction:column; gap:7px;}
+  .fx-row{display:grid; grid-template-columns:62px 1fr 36px; align-items:center; gap:8px;}
+  .fx-row > label{font-size:11px; color:var(--ink-dim);}
+  .fx-row input[type=range]{
+    -webkit-appearance:none; appearance:none; width:100%; height:3px;
+    border-radius:2px; background:var(--line); cursor:pointer;
+  }
+  .fx-row input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:var(--accent); cursor:pointer;
+  }
+  .fx-row input[type=range]::-moz-range-thumb{
+    width:12px; height:12px; border:none; border-radius:50%; background:var(--accent); cursor:pointer;
+  }
+  .fx-val{font-family:var(--mono); font-size:10px; color:var(--ink-dim); text-align:right;}
+  .fx-foot{display:flex; justify-content:flex-end;}
+  @media (max-width: 640px){
+    #fx-panel{width:calc(100vw - 24px); max-width:300px;}
+  }
 </style>
 </head>
 <body>
@@ -437,6 +476,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
     </button>
     <button class="btn" id="new-track-btn" title="Add a video track">+ Track</button>
+    <button class="btn" id="fx-btn" title="Video effects &amp; filters" disabled>FX</button>
     <span class="tb-sep"></span>
     <button class="btn icon-btn" id="undo-btn" title="Undo (Ctrl/Cmd+Z)" disabled>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>
@@ -461,6 +501,15 @@
 <div id="media-pool" aria-hidden="true"></div>
 <div id="lib-backdrop"></div>
 <div id="clip-bubble"><button id="clip-bubble-del" type="button">Delete clip</button></div>
+<div id="fx-panel" aria-hidden="true">
+  <div class="fx-head">
+    <span class="fx-title">Effects</span>
+    <button class="fx-close" id="fx-close" type="button" title="Close">✕</button>
+  </div>
+  <div class="fx-presets" id="fx-presets"></div>
+  <div class="fx-sliders" id="fx-sliders"></div>
+  <div class="fx-foot"><button class="btn" id="fx-reset" type="button">Reset all</button></div>
+</div>
 <div id="drag-ghost"></div>
 <div id="toasts"></div>
 
@@ -1025,6 +1074,7 @@ function renderTimeline() {
   const hasSel = !!(selection && findClip(selection.clipId));
   const delBtn = $("#del-clip-btn");
   if (delBtn) { delBtn.disabled = !hasSel; delBtn.classList.toggle("armed", hasSel); }
+  if (typeof updateFxPanel === "function") updateFxPanel();
 }
 
 function updatePlayheadEl() {
@@ -1518,6 +1568,7 @@ function copySelectedClip() {
     mediaId: c.mediaId, trackId: sel.track.id, trackType: sel.track.type,
     duration: c.duration, sourceStart: c.sourceStart || 0,
     x: c.x, y: c.y, scale: c.scale, rotation: c.rotation,
+    effects: c.effects ? { ...c.effects } : null,
   };
   const m = mediaById(c.mediaId);
   toast(`Copied “${m ? m.name : "clip"}” — Ctrl/Cmd+V to paste.`);
@@ -1556,6 +1607,7 @@ function pasteClipboard() {
   };
   if (track.type === "visual") {
     clip.x = data.x; clip.y = data.y; clip.scale = data.scale; clip.rotation = data.rotation;
+    if (data.effects) clip.effects = { ...data.effects };
   }
   track.clips.push(clip);
   selection = { trackId: track.id, clipId: clip.id };
@@ -1564,6 +1616,209 @@ function pasteClipboard() {
   requestPreviewRedraw();
   toast(`Pasted “${media.name}”.`);
 }
+
+/* ---------------- clip effects (filters) ----------------
+   Per-clip, non-destructive color/look adjustments. Each maps 1:1 to a CSS
+   filter function, applied via ctx.filter inside renderFrameAt — the single
+   compositor shared by preview AND export — so both get identical results for
+   free. `opacity` is the one exception: it runs through ctx.globalAlpha
+   (cleaner than a filter, composites the same). A clip with no effects keeps
+   clip.effects === undefined and pays nothing. These live in the same script
+   block as the panel UI; buildFilterString is a hoisted function so the
+   compositor (a later <script>) can still reach it. */
+const EFFECT_DEFS = [
+  { key: "brightness", label: "Brightness", css: "brightness", min: 0,    max: 2,   step: 0.01, def: 1, unit: "" },
+  { key: "contrast",   label: "Contrast",   css: "contrast",   min: 0,    max: 2,   step: 0.01, def: 1, unit: "" },
+  { key: "saturate",   label: "Saturation", css: "saturate",   min: 0,    max: 3,   step: 0.01, def: 1, unit: "" },
+  { key: "hueRotate",  label: "Hue",        css: "hue-rotate", min: -180, max: 180, step: 1,    def: 0, unit: "deg" },
+  { key: "grayscale",  label: "Grayscale",  css: "grayscale",  min: 0,    max: 1,   step: 0.01, def: 0, unit: "" },
+  { key: "sepia",      label: "Sepia",      css: "sepia",      min: 0,    max: 1,   step: 0.01, def: 0, unit: "" },
+  { key: "invert",     label: "Invert",     css: "invert",     min: 0,    max: 1,   step: 0.01, def: 0, unit: "" },
+  { key: "blur",       label: "Blur",       css: "blur",       min: 0,    max: 20,  step: 0.1,  def: 0, unit: "px" },
+  { key: "opacity",    label: "Opacity",    css: "opacity",    min: 0,    max: 1,   step: 0.01, def: 1, unit: "" },
+];
+const EFFECT_BY_KEY = Object.fromEntries(EFFECT_DEFS.map((d) => [d.key, d]));
+
+// One-click "looks" — a preset is just a sparse set of non-default effect values.
+const FX_PRESETS = [
+  { name: "None",    fx: null },
+  { name: "B&W",     fx: { grayscale: 1, contrast: 1.05 } },
+  { name: "Noir",    fx: { grayscale: 1, contrast: 1.4, brightness: 0.95 } },
+  { name: "Vintage", fx: { sepia: 0.45, saturate: 1.2, contrast: 0.9, brightness: 1.05 } },
+  { name: "Vivid",   fx: { saturate: 1.6, contrast: 1.15 } },
+  { name: "Cool",    fx: { hueRotate: -12, saturate: 1.1, brightness: 1.03 } },
+  { name: "Warm",    fx: { sepia: 0.25, saturate: 1.2, brightness: 1.05 } },
+  { name: "Dreamy",  fx: { blur: 1.6, brightness: 1.1, saturate: 1.25, contrast: 0.95 } },
+  { name: "Invert",  fx: { invert: 1 } },
+];
+
+// Build a CSS filter string from an effects object (opacity excluded — see above).
+function buildFilterString(fx) {
+  if (!fx) return "";
+  const parts = [];
+  for (const d of EFFECT_DEFS) {
+    if (d.key === "opacity") continue;
+    const v = fx[d.key];
+    if (v == null || v === d.def) continue;
+    parts.push(d.css + "(" + v + d.unit + ")");
+  }
+  return parts.join(" ");
+}
+
+/* ---------------- effects panel UI ---------------- */
+let fxPanelOpen = false;
+let fxEditCap = null;   // one undo entry per slider drag (lazy-captured on first input)
+
+// Drop default-valued keys; collapse an all-default object back to no effects.
+function normalizeEffects(clip) {
+  const fx = clip.effects;
+  if (!fx) { clip.effects = undefined; return; }
+  for (const d of EFFECT_DEFS) if (fx[d.key] === d.def) delete fx[d.key];
+  if (Object.keys(fx).length === 0) clip.effects = undefined;
+}
+
+function fmtEffectVal(d, v) {
+  if (d.unit === "deg") return Math.round(v) + "°";
+  if (d.unit === "px") return v.toFixed(1).replace(/\.0$/, "") + "px";
+  return Number(v).toFixed(2);
+}
+
+// True when a clip's effects exactly match a preset's sparse value set.
+function effectsMatchPreset(clip, preset) {
+  const want = preset.fx;
+  if (!want) return !clip.effects;       // "None" ⇔ no effects
+  if (!clip.effects) return false;
+  for (const d of EFFECT_DEFS) {
+    const a = clip.effects[d.key] ?? d.def;
+    const b = want[d.key] ?? d.def;
+    if (a !== b) return false;
+  }
+  return true;
+}
+
+function buildFxControls() {
+  const presetWrap = $("#fx-presets");
+  for (const p of FX_PRESETS) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "fx-preset";
+    b.textContent = p.name;
+    b.dataset.preset = p.name;
+    b.addEventListener("click", () => applyPreset(p));
+    presetWrap.appendChild(b);
+  }
+  const slidersWrap = $("#fx-sliders");
+  for (const d of EFFECT_DEFS) {
+    const row = document.createElement("div");
+    row.className = "fx-row";
+    const lab = document.createElement("label");
+    lab.textContent = d.label;
+    const inp = document.createElement("input");
+    inp.type = "range";
+    inp.min = d.min; inp.max = d.max; inp.step = d.step;
+    inp.dataset.key = d.key;
+    const val = document.createElement("span");
+    val.className = "fx-val";
+    inp.addEventListener("input", () => onSliderInput(d, inp));
+    inp.addEventListener("change", () => { if (fxEditCap) { commitEdit(fxEditCap); fxEditCap = null; } });
+    row.append(lab, inp, val);
+    slidersWrap.appendChild(row);
+  }
+}
+
+function onSliderInput(d, inp) {
+  const sel = selectedClip();
+  if (!sel || sel.track.type !== "visual") return;
+  if (!fxEditCap) fxEditCap = captureEdit();   // capture "before" once per drag
+  const v = +inp.value;
+  if (!sel.clip.effects) sel.clip.effects = {};
+  if (v === d.def) delete sel.clip.effects[d.key];
+  else sel.clip.effects[d.key] = v;
+  normalizeEffects(sel.clip);
+  syncFxLabels(sel.clip);
+  syncPresetActive(sel.clip);
+  requestPreviewRedraw();
+}
+
+function applyPreset(p) {
+  const sel = selectedClip();
+  if (!sel || sel.track.type !== "visual") return;
+  pushHistory();
+  sel.clip.effects = p.fx ? { ...p.fx } : undefined;
+  syncFxControls(sel.clip);
+  requestPreviewRedraw();
+  renderTimeline();
+}
+
+// Reflect a clip's effects onto every slider + label + preset chip.
+function syncFxControls(clip) {
+  for (const inp of $("#fx-sliders").querySelectorAll("input[type=range]")) {
+    const d = EFFECT_BY_KEY[inp.dataset.key];
+    inp.value = (clip.effects && clip.effects[d.key] != null) ? clip.effects[d.key] : d.def;
+  }
+  syncFxLabels(clip);
+  syncPresetActive(clip);
+}
+function syncFxLabels(clip) {
+  for (const inp of $("#fx-sliders").querySelectorAll("input[type=range]")) {
+    const d = EFFECT_BY_KEY[inp.dataset.key];
+    const v = (clip.effects && clip.effects[d.key] != null) ? clip.effects[d.key] : d.def;
+    inp.parentElement.querySelector(".fx-val").textContent = fmtEffectVal(d, v);
+  }
+}
+function syncPresetActive(clip) {
+  for (const b of $("#fx-presets").querySelectorAll(".fx-preset")) {
+    const preset = FX_PRESETS.find((p) => p.name === b.dataset.preset);
+    b.classList.toggle("active", effectsMatchPreset(clip, preset));
+  }
+}
+
+function positionFxPanel() {
+  const btn = $("#fx-btn"), panel = $("#fx-panel");
+  const r = btn.getBoundingClientRect();
+  const pw = panel.offsetWidth, ph = panel.offsetHeight;
+  let left = clamp(r.left, 8, Math.max(8, window.innerWidth - pw - 8));
+  let top = r.top - ph - 8;                         // prefer above the toolbar button
+  if (top < 8) top = Math.min(r.bottom + 8, window.innerHeight - ph - 8);
+  panel.style.left = left + "px";
+  panel.style.top = Math.max(8, top) + "px";
+}
+function openFxPanel() {
+  const sel = selectedClip();
+  if (!sel || sel.track.type !== "visual") return;
+  fxPanelOpen = true;
+  $("#fx-panel").classList.add("open");
+  $("#fx-btn").classList.add("active");
+  syncFxControls(sel.clip);
+  positionFxPanel();
+}
+function closeFxPanel() {
+  fxPanelOpen = false;
+  $("#fx-panel").classList.remove("open");
+  $("#fx-btn").classList.remove("active");
+}
+
+// Called from renderTimeline on every selection change.
+function updateFxPanel() {
+  const sel = selectedClip();
+  const isVisual = !!(sel && sel.track.type === "visual");
+  const btn = $("#fx-btn");
+  if (btn) btn.disabled = !isVisual;
+  if (!isVisual) { if (fxPanelOpen) closeFxPanel(); return; }
+  if (fxPanelOpen) { syncFxControls(sel.clip); positionFxPanel(); }
+}
+
+buildFxControls();
+$("#fx-btn").addEventListener("click", () => { fxPanelOpen ? closeFxPanel() : openFxPanel(); });
+$("#fx-close").addEventListener("click", closeFxPanel);
+$("#fx-reset").addEventListener("click", () => applyPreset({ name: "None", fx: null }));
+window.addEventListener("resize", () => { if (fxPanelOpen) positionFxPanel(); });
+// click-away closes the panel (but not clicks on the panel or its toggle button)
+window.addEventListener("pointerdown", (e) => {
+  if (!fxPanelOpen) return;
+  if (e.target.closest("#fx-panel") || e.target.closest("#fx-btn")) return;
+  closeFxPanel();
+});
 </script>
 <script>
 "use strict";
@@ -1585,6 +1840,10 @@ function drawableFor(clip, media, frameSource) {
   if (media.type === "video") return frameSource ? frameSource(clip, media) : media.videoEl;
   return null;
 }
+
+/* Per-clip effects are applied here via ctx.filter (see the effects panel
+   section for EFFECT_DEFS / FX_PRESETS / buildFilterString). buildFilterString
+   is a hoisted global, so the compositor can call it across <script> blocks. */
 
 /** The one compositing function. Pure w.r.t. (time, track state). */
 function renderFrameAt(t, ctx, frameSource) {
@@ -1615,6 +1874,12 @@ function renderFrameAt(t, ctx, frameSource) {
       ctx.rotate(clip.rotation);
       ctx.scale(clip.scale, clip.scale);
       if (vrot) ctx.rotate(vrot * Math.PI / 180);
+      const fx = clip.effects;
+      if (fx) {
+        const f = buildFilterString(fx);
+        if (f) ctx.filter = f;
+        if (fx.opacity != null && fx.opacity < 1) ctx.globalAlpha = clamp(fx.opacity, 0, 1);
+      }
       try { ctx.drawImage(drawable, -w / 2, -h / 2, w, h); } catch (err) { /* not ready yet */ }
       ctx.restore();
     }
