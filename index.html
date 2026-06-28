@@ -242,6 +242,11 @@
     content:""; position:absolute; top:0; left:5px;
     border:5px solid transparent; border-top:7px solid var(--accent); border-bottom:none;
   }
+  /* full-height grab strip so the playhead can be scrubbed anywhere along its length */
+  #playhead-grab{
+    position:absolute; top:0; bottom:0; left:-5px; width:11px;
+    pointer-events:auto; cursor:ew-resize; touch-action:none;
+  }
   #snap-guide{position:absolute; top:0; bottom:0; width:1px; background:var(--ink); opacity:.6; z-index:6; display:none; pointer-events:none;}
 
   /* delete bubble (double-tap a clip) */
@@ -396,6 +401,7 @@
     .icon-btn{width:40px; height:34px;}
     .icon-btn svg{width:19px; height:19px;}
     #playhead-head{left:-20px; width:40px; height:30px;}
+    #playhead-grab{left:-12px; width:24px;}
     #playhead-head::before{left:15px; border-left-width:6px; border-right-width:6px; border-top-width:9px;}
     #scrubber{height:8px;}
     #scrubber::-webkit-slider-thumb{width:20px; height:20px;}
@@ -537,7 +543,7 @@
     <button class="btn icon-btn" id="del-clip-btn" title="Delete clip" disabled>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
     </button>
-    <button class="btn icon-btn" id="split-btn" title="Split clip at playhead (S)" disabled>
+    <button class="btn icon-btn" id="split-btn" title="Split selected clip at playhead (S)" disabled>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
     </button>
     <button class="btn" id="fx-btn" title="Video effects &amp; filters" disabled>FX</button>
@@ -556,7 +562,7 @@
     <div id="tl-inner">
       <div id="ruler"></div>
       <div id="tracks-host"></div>
-      <div id="playhead"><div id="playhead-head"></div></div>
+      <div id="playhead"><div id="playhead-head"></div><div id="playhead-grab"></div></div>
       <div id="snap-guide"></div>
     </div>
   </div>
@@ -1539,10 +1545,10 @@ function scrubToClientX(clientX) {
 }
 // scrubbing can fire many pointermoves per frame; coalesce to one update per frame
 function makeRafScrub() {
-  let raf = 0, x = 0;
+  let raf = 0, x = null; // null until a move arrives, so a plain click doesn't re-seek to 0
   return {
-    update(clientX) { x = clientX; if (!raf) raf = requestAnimationFrame(() => { raf = 0; scrubToClientX(x); }); },
-    flush() { if (raf) { cancelAnimationFrame(raf); raf = 0; } scrubToClientX(x); },
+    update(clientX) { x = clientX; if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (x != null) scrubToClientX(x); }); },
+    flush() { if (raf) { cancelAnimationFrame(raf); raf = 0; } if (x != null) scrubToClientX(x); },
   };
 }
 
@@ -1556,35 +1562,44 @@ rulerEl.addEventListener("pointerdown", (e) => {
   window.addEventListener("pointerup", up);
 });
 
-/* grab the playhead head itself to scrub back/forward (esp. on touch) */
-const playheadHead = $("#playhead-head");
-playheadHead.addEventListener("pointerdown", (e) => {
+/* grab the playhead anywhere along its length (head triangle or full-height strip) to scrub */
+function startPlayheadScrub(e) {
   e.preventDefault();
   e.stopPropagation();
   if (playing) setPlaying(false);
-  try { playheadHead.setPointerCapture(e.pointerId); } catch (_) {}
+  const el = e.currentTarget;
+  try { el.setPointerCapture(e.pointerId); } catch (_) {}
   scrubToClientX(e.clientX);
   const s = makeRafScrub();
   const move = (ev) => s.update(ev.clientX);
   const up = (ev) => {
     s.flush();
-    try { playheadHead.releasePointerCapture(ev.pointerId); } catch (_) {}
-    playheadHead.removeEventListener("pointermove", move);
-    playheadHead.removeEventListener("pointerup", up);
-    playheadHead.removeEventListener("pointercancel", up);
+    try { el.releasePointerCapture(ev.pointerId); } catch (_) {}
+    el.removeEventListener("pointermove", move);
+    el.removeEventListener("pointerup", up);
+    el.removeEventListener("pointercancel", up);
   };
-  playheadHead.addEventListener("pointermove", move);
-  playheadHead.addEventListener("pointerup", up);
-  playheadHead.addEventListener("pointercancel", up);
-});
+  el.addEventListener("pointermove", move);
+  el.addEventListener("pointerup", up);
+  el.addEventListener("pointercancel", up);
+}
+$("#playhead-head").addEventListener("pointerdown", startPlayheadScrub);
+$("#playhead-grab").addEventListener("pointerdown", startPlayheadScrub);
 
-/* clicking empty lane space clears selection */
+/* clicking empty lane space clears the selection and moves the playhead there
+   (drag to keep scrubbing) */
 tracksHost.addEventListener("pointerdown", (e) => {
-  if (e.target.classList.contains("track-lane")) {
-    selection = null;
-    renderTimeline();
-    requestPreviewRedraw();
-  }
+  if (!e.target.classList.contains("track-lane")) return;
+  if (selection) { selection = null; renderTimeline(); requestPreviewRedraw(); }
+  if (e.button !== 0) return;
+  e.preventDefault();
+  if (playing) setPlaying(false);
+  scrubToClientX(e.clientX);
+  const s = makeRafScrub();
+  const move = (ev) => s.update(ev.clientX);
+  const up = () => { s.flush(); window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
 });
 
 /* zoom */
@@ -2291,7 +2306,12 @@ window.addEventListener("keydown", (e) => {
     if (k === "v") { e.preventDefault(); pasteClipboard(); return; }
   }
 
-  if (e.code === "Space") { e.preventDefault(); setPlaying(!playing); }
+  if (e.code === "Space") {
+    e.preventDefault();
+    // blur any focused button first, or its own Space-activation would toggle a second time
+    if (document.activeElement && document.activeElement.tagName === "BUTTON") document.activeElement.blur();
+    setPlaying(!playing);
+  }
   else if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteSelectedClip(); }
   else if (e.key === "ArrowLeft") seek(playhead - (e.shiftKey ? 1 : 1 / 60));
   else if (e.key === "ArrowRight") seek(playhead + (e.shiftKey ? 1 : 1 / 60));
