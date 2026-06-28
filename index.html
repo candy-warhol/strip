@@ -166,6 +166,12 @@
     background:var(--accent); border:none; margin-top:0;
   }
   #scrubber::-moz-range-thumb{width:12px; height:12px; border-radius:50%; background:var(--accent); border:none;}
+  #fullscreen-btn{
+    width:30px; height:30px; border-radius:6px; border:1px solid var(--line); flex:0 0 auto;
+    display:flex; align-items:center; justify-content:center; background:var(--panel-2);
+  }
+  #fullscreen-btn:hover{border-color:var(--accent);}
+  #fullscreen-btn svg{width:15px; height:15px; fill:none; stroke:var(--ink); stroke-width:2; stroke-linecap:round; stroke-linejoin:round;}
 
   /* ---------- timeline ---------- */
   #timeline-panel{
@@ -304,9 +310,15 @@
     background:var(--panel); border:1px solid var(--line); border-radius:6px;
     padding:18px; display:flex; flex-direction:column; gap:12px;
   }
-  #img-editor-head{display:flex; align-items:baseline; gap:10px;}
-  #img-editor-head h2{font-size:13px; font-weight:600; letter-spacing:.04em; text-transform:uppercase;}
-  #img-editor-name{font-size:12px; color:var(--ink-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  #img-editor-head{display:flex; align-items:center; gap:10px;}
+  #img-editor-head h2{font-size:13px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; flex:0 0 auto;}
+  #img-editor-name{
+    flex:1; min-width:0; font:inherit; font-size:12px; color:var(--ink-dim);
+    background:transparent; border:1px solid transparent; border-radius:4px; padding:3px 7px;
+    text-overflow:ellipsis;
+  }
+  #img-editor-name:hover{border-color:var(--line); color:var(--ink);}
+  #img-editor-name:focus{outline:none; border-color:var(--accent); color:var(--ink); background:var(--panel-2);}
   #img-editor-stage{
     flex:1; min-height:0; display:flex; align-items:center; justify-content:center;
     background:
@@ -511,6 +523,10 @@
       </button>
       <span id="timecode">00:00.00 <span class="total">/ 00:00.00</span></span>
       <input type="range" id="scrubber" min="0" max="0" step="0.001" value="0">
+      <button id="fullscreen-btn" title="Full screen">
+        <svg id="fs-enter" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+        <svg id="fs-exit" viewBox="0 0 24 24" style="display:none"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>
+      </button>
     </div>
   </section>
 </div>
@@ -582,7 +598,7 @@
   <div id="img-editor-card">
     <div id="img-editor-head">
       <h2>Edit image</h2>
-      <span id="img-editor-name"></span>
+      <input id="img-editor-name" title="Click to rename" spellcheck="false" autocomplete="off">
     </div>
     <div id="img-editor-stage">
       <canvas id="img-editor-canvas"></canvas>
@@ -1197,7 +1213,9 @@ function startLibraryDrag(e, media) {
     window.removeEventListener("pointerup", up);
     dragGhost.style.display = "none";
     if (hoverLane) hoverLane.classList.remove("drop-ok", "drop-bad");
-    if (!active || !hoverLane) return;
+    // a plain click (no drag) auto-inserts the asset at the playhead on a blank track
+    if (!active) { addClipAtPlayhead(media); return; }
+    if (!hoverLane) return;
     const tr = tracks.find((t) => t.id === hoverLane.dataset.trackId);
     if (!canDrop(media, tr)) {
       toast(media.type === "audio"
@@ -2228,6 +2246,31 @@ function setPlaying(p) {
 $("#play-btn").addEventListener("click", () => setPlaying(!playing));
 $("#back-btn").addEventListener("click", () => { setPlaying(false); seek(0); });
 $("#scrubber").addEventListener("input", (e) => seek(+e.target.value));
+
+/* ---- full-screen playback ---- */
+const fsTarget = $("#preview-col"); // keep the transport controls visible while full-screen
+function fsElement() { return document.fullscreenElement || document.webkitFullscreenElement || null; }
+function toggleFullscreen() {
+  if (fsElement()) {
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  } else {
+    const req = fsTarget.requestFullscreen || fsTarget.webkitRequestFullscreen;
+    if (req) { const p = req.call(fsTarget); if (p && p.catch) p.catch(() => toast("Couldn't enter full screen.", true)); }
+    else toast("Full screen isn't supported in this browser.", true);
+  }
+}
+function onFullscreenChange() {
+  const active = !!fsElement();
+  $("#fs-enter").style.display = active ? "none" : "";
+  $("#fs-exit").style.display = active ? "" : "none";
+  $("#fullscreen-btn").title = active ? "Exit full screen" : "Full screen";
+  // re-fit the stage to the new viewport size (now/no longer full-screen)
+  resizeStage();
+  requestAnimationFrame(resizeStage);
+}
+$("#fullscreen-btn").addEventListener("click", toggleFullscreen);
+document.addEventListener("fullscreenchange", onFullscreenChange);
+document.addEventListener("webkitfullscreenchange", onFullscreenChange);
 
 window.addEventListener("keydown", (e) => {
   if (e.target.matches("input, select, textarea")) return;
@@ -3392,7 +3435,7 @@ function openImageEditor(media) {
   imgEditor.crop = { x: 0, y: 0, w, h };
   imgEditor.drag = null;
   clearMatte(); // no background-removal matte yet; hides the strength slider
-  $("#img-editor-name").textContent = media.name;
+  $("#img-editor-name").value = media.name;
   imgEditorStatus("", false);
   setImgEditorBusy(false);
   imgEditorModal.classList.add("open");
@@ -3690,6 +3733,27 @@ $("#img-editor-apply").addEventListener("click", () => {
 $("#img-editor-cancel").addEventListener("click", () => { if (!imgEditor.busy) closeImageEditor(); });
 imgEditorModal.addEventListener("pointerdown", (e) => { if (e.target === imgEditorModal && !imgEditor.busy) closeImageEditor(); });
 window.addEventListener("resize", () => { if (imgEditor.open) layoutImageEditor(); });
+
+/* rename the media by editing the filename field in the editor header */
+const imgNameInput = $("#img-editor-name");
+function commitImgRename() {
+  if (!imgEditor.media) return;
+  const v = imgNameInput.value.trim();
+  if (v && v !== imgEditor.media.name) {
+    imgEditor.media.name = v;
+    renderLibrary();
+    renderTimeline(); // clip labels read the media name
+  } else {
+    imgNameInput.value = imgEditor.media.name; // ignore empty / unchanged
+  }
+}
+imgNameInput.addEventListener("change", commitImgRename);
+imgNameInput.addEventListener("blur", commitImgRename);
+imgNameInput.addEventListener("keydown", (e) => {
+  e.stopPropagation(); // don't let timeline/editor shortcuts fire while typing a name
+  if (e.key === "Enter") { e.preventDefault(); imgNameInput.blur(); }
+  else if (e.key === "Escape") { e.preventDefault(); imgNameInput.value = imgEditor.media ? imgEditor.media.name : ""; imgNameInput.blur(); }
+});
 
 /* ---------------- boot ---------------- */
 renderLibrary();
