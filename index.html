@@ -66,23 +66,36 @@
 
   /* library */
   #library{
-    width:228px; flex:0 0 228px; border-right:1px solid var(--line);
+    width:248px; flex:0 0 248px; border-right:1px solid var(--line);
     background:var(--panel); display:flex; flex-direction:column; min-height:0;
   }
   .panel-head{
-    display:flex; align-items:center; justify-content:space-between;
-    padding:10px 12px 8px;
-    font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--ink-dim);
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    padding:11px 12px; border-bottom:1px solid var(--line); margin-bottom:10px;
   }
+  .panel-title{font-size:15px; color:var(--ink); font-weight:500; letter-spacing:.01em;}
+  .panel-head-actions{display:flex; align-items:center; gap:4px;}
+  .lib-head-btn{
+    width:28px; height:28px; border-radius:5px; color:var(--ink-dim);
+    display:inline-flex; align-items:center; justify-content:center;
+  }
+  .lib-head-btn svg{width:18px; height:18px;}
+  .lib-head-btn:hover{color:var(--ink); background:var(--panel-2);}
   #add-media-btn{
-    color:var(--accent); font-size:12px; letter-spacing:0; text-transform:none;
+    display:inline-flex; align-items:center; gap:6px; border-radius:6px; padding:6px 11px;
   }
-  #add-media-btn:hover{text-decoration:underline;}
+  #add-media-btn svg{width:15px; height:15px;}
   #library-list{flex:1; overflow-y:auto; padding:0 10px 10px; display:flex; flex-direction:column; gap:8px;}
+  #library-list.grid{display:grid; grid-template-columns:1fr 1fr; gap:8px; align-content:start;}
+  #library-list.grid #library-empty{grid-column:1 / -1;}
   #library-empty{
-    margin:8px 2px; padding:18px 12px; border:1px dashed var(--line);
-    border-radius:var(--radius); color:var(--ink-faint); font-size:12px; line-height:1.5; text-align:center;
+    margin:2px; padding:34px 18px; border:1px solid var(--line);
+    border-radius:10px; background:var(--panel-2);
+    color:var(--ink-faint); font-size:13px; line-height:1.5; text-align:center;
+    display:flex; flex-direction:column; align-items:center; gap:14px;
   }
+  #library-empty .drop-icon{display:flex; color:var(--ink-faint);}
+  #library-empty .drop-icon svg{width:40px; height:40px;}
   #library-empty .empty-narrow{display:none;}
   .lib-item{
     border:1px solid var(--line-soft); border-radius:var(--radius);
@@ -454,13 +467,28 @@
 <div id="main">
   <aside id="library">
     <div class="panel-head">
-      <span>Media library</span>
-      <button id="add-media-btn" title="Add media files">+ Add</button>
+      <span class="panel-title">Assets</span>
+      <div class="panel-head-actions">
+        <button class="lib-head-btn" id="lib-view-btn" title="Toggle grid / list view">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>
+        </button>
+        <button class="lib-head-btn" id="lib-sort-btn" title="Sort by name">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16"/><path d="M4 17l3 3 3-3"/><path d="M13 6h7"/><path d="M13 11h5"/><path d="M13 16h3"/></svg>
+        </button>
+        <button class="btn" id="add-media-btn" title="Import media files">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 16l-4-4-4 4"/><path d="M12 12v9"/><path d="M20.4 18.4A5 5 0 0 0 18 9h-1.3A8 8 0 1 0 3 16.3"/></svg>
+          Import
+        </button>
+      </div>
     </div>
     <div id="lib-sheet-hint">Tap an item to add it at the playhead.</div>
     <input type="file" id="file-input" accept=".mp4,.mov,.wav,.mp3,.png,.jpg,.jpeg,video/mp4,video/quicktime,audio/wav,audio/mpeg,image/png,image/jpeg" multiple hidden>
     <div id="library-list">
-      <div id="library-empty"><span class="empty-wide">Drop MOV, MP4, WAV, MP3, PNG or JPG files anywhere in the window, or use “+ Add”. Drag items from here onto the timeline.</span><span class="empty-narrow">Tap “+ Add” to add media.</span></div>
+      <div id="library-empty">
+        <span class="drop-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4"/><path d="M8 8l4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></span>
+        <span class="empty-wide">Drag and drop videos, photos, and audio files here</span>
+        <span class="empty-narrow">Tap “Import” to add media.</span>
+      </div>
     </div>
   </aside>
 
@@ -847,7 +875,7 @@ function renderLibrary() {
   if (!mediaLibrary.length) {
     const empty = document.createElement("div");
     empty.id = "library-empty";
-    empty.innerHTML = '<span class="empty-wide">Drop MOV, MP4, WAV, MP3, PNG or JPG files anywhere in the window, or use “+ Add”. Drag items from here onto the timeline.</span><span class="empty-narrow">Tap “+ Add” to add media.</span>';
+    empty.innerHTML = '<span class="drop-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4"/><path d="M8 8l4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></span><span class="empty-wide">Drag and drop videos, photos, and audio files here</span><span class="empty-narrow">Tap “Import” to add media.</span>';
     host.appendChild(empty);
     return;
   }
@@ -917,6 +945,15 @@ function renderLibrary() {
 /* file picker + drop-anywhere */
 $("#add-media-btn").addEventListener("click", () => $("#file-input").click());
 $("#file-input").addEventListener("change", (e) => { addFiles([...e.target.files]); e.target.value = ""; });
+
+/* library header: sort (toggle name A–Z / Z–A) and grid/list view toggle */
+let librarySortDir = 1;
+$("#lib-sort-btn").addEventListener("click", () => {
+  mediaLibrary.sort((a, b) => librarySortDir * a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+  librarySortDir *= -1;
+  renderLibrary();
+});
+$("#lib-view-btn").addEventListener("click", () => $("#library-list").classList.toggle("grid"));
 window.addEventListener("dragover", (e) => { e.preventDefault(); });
 window.addEventListener("drop", (e) => {
   e.preventDefault();
