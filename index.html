@@ -66,23 +66,36 @@
 
   /* library */
   #library{
-    width:228px; flex:0 0 228px; border-right:1px solid var(--line);
+    width:248px; flex:0 0 248px; border-right:1px solid var(--line);
     background:var(--panel); display:flex; flex-direction:column; min-height:0;
   }
   .panel-head{
-    display:flex; align-items:center; justify-content:space-between;
-    padding:10px 12px 8px;
-    font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--ink-dim);
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    padding:11px 12px; border-bottom:1px solid var(--line); margin-bottom:10px;
   }
+  .panel-title{font-size:15px; color:var(--ink); font-weight:500; letter-spacing:.01em;}
+  .panel-head-actions{display:flex; align-items:center; gap:4px;}
+  .lib-head-btn{
+    width:28px; height:28px; border-radius:5px; color:var(--ink-dim);
+    display:inline-flex; align-items:center; justify-content:center;
+  }
+  .lib-head-btn svg{width:18px; height:18px;}
+  .lib-head-btn:hover{color:var(--ink); background:var(--panel-2);}
   #add-media-btn{
-    color:var(--accent); font-size:12px; letter-spacing:0; text-transform:none;
+    display:inline-flex; align-items:center; gap:6px; border-radius:6px; padding:6px 11px;
   }
-  #add-media-btn:hover{text-decoration:underline;}
+  #add-media-btn svg{width:15px; height:15px;}
   #library-list{flex:1; overflow-y:auto; padding:0 10px 10px; display:flex; flex-direction:column; gap:8px;}
+  #library-list.grid{display:grid; grid-template-columns:1fr 1fr; gap:8px; align-content:start;}
+  #library-list.grid #library-empty{grid-column:1 / -1;}
   #library-empty{
-    margin:8px 2px; padding:18px 12px; border:1px dashed var(--line);
-    border-radius:var(--radius); color:var(--ink-faint); font-size:12px; line-height:1.5; text-align:center;
+    margin:2px; padding:34px 18px; border:1px solid var(--line);
+    border-radius:10px; background:var(--panel-2);
+    color:var(--ink-faint); font-size:13px; line-height:1.5; text-align:center;
+    display:flex; flex-direction:column; align-items:center; gap:14px;
   }
+  #library-empty .drop-icon{display:flex; color:var(--ink-faint);}
+  #library-empty .drop-icon svg{width:40px; height:40px;}
   #library-empty .empty-narrow{display:none;}
   .lib-item{
     border:1px solid var(--line-soft); border-radius:var(--radius);
@@ -153,6 +166,12 @@
     background:var(--accent); border:none; margin-top:0;
   }
   #scrubber::-moz-range-thumb{width:12px; height:12px; border-radius:50%; background:var(--accent); border:none;}
+  #fullscreen-btn{
+    width:30px; height:30px; border-radius:6px; border:1px solid var(--line); flex:0 0 auto;
+    display:flex; align-items:center; justify-content:center; background:var(--panel-2);
+  }
+  #fullscreen-btn:hover{border-color:var(--accent);}
+  #fullscreen-btn svg{width:15px; height:15px; fill:none; stroke:var(--ink); stroke-width:2; stroke-linecap:round; stroke-linejoin:round;}
 
   /* ---------- timeline ---------- */
   #timeline-panel{
@@ -164,6 +183,8 @@
     border-bottom:1px solid var(--line-soft); font-size:11px; color:var(--ink-dim);
   }
   #tl-toolbar .spacer{flex:1;}
+  .zoom-ic{display:inline-flex; align-items:center; color:var(--ink-dim);}
+  .zoom-ic svg{width:16px; height:16px;}
   #zoom-slider{width:120px; accent-color:var(--accent);}
   #tl-scroll{flex:1; overflow:auto; position:relative;}
   #tl-inner{position:relative; min-width:100%;}
@@ -220,6 +241,11 @@
   #playhead-head::before{
     content:""; position:absolute; top:0; left:5px;
     border:5px solid transparent; border-top:7px solid var(--accent); border-bottom:none;
+  }
+  /* full-height grab strip so the playhead can be scrubbed anywhere along its length */
+  #playhead-grab{
+    position:absolute; top:0; bottom:0; left:-5px; width:11px;
+    pointer-events:auto; cursor:ew-resize; touch-action:none;
   }
   #snap-guide{position:absolute; top:0; bottom:0; width:1px; background:var(--ink); opacity:.6; z-index:6; display:none; pointer-events:none;}
 
@@ -289,9 +315,15 @@
     background:var(--panel); border:1px solid var(--line); border-radius:6px;
     padding:18px; display:flex; flex-direction:column; gap:12px;
   }
-  #img-editor-head{display:flex; align-items:baseline; gap:10px;}
-  #img-editor-head h2{font-size:13px; font-weight:600; letter-spacing:.04em; text-transform:uppercase;}
-  #img-editor-name{font-size:12px; color:var(--ink-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  #img-editor-head{display:flex; align-items:center; gap:10px;}
+  #img-editor-head h2{font-size:13px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; flex:0 0 auto;}
+  #img-editor-name{
+    flex:1; min-width:0; font:inherit; font-size:12px; color:var(--ink-dim);
+    background:transparent; border:1px solid transparent; border-radius:4px; padding:3px 7px;
+    text-overflow:ellipsis;
+  }
+  #img-editor-name:hover{border-color:var(--line); color:var(--ink);}
+  #img-editor-name:focus{outline:none; border-color:var(--accent); color:var(--ink); background:var(--panel-2);}
   #img-editor-stage{
     flex:1; min-height:0; display:flex; align-items:center; justify-content:center;
     background:
@@ -300,6 +332,8 @@
   }
   #img-editor-canvas{display:block; max-width:100%; max-height:54vh; touch-action:none; cursor:crosshair;}
   #img-editor-tools{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+  #img-strength-wrap{display:none; align-items:center; gap:7px; font-size:11px; color:var(--ink-dim);}
+  #img-strength{width:120px; accent-color:var(--accent);}
   #img-editor-hint{font-size:11px; color:var(--ink-faint);}
   #img-editor-status{font-size:11px; color:var(--ink-dim); margin-left:auto;}
   #img-editor-status.busy{color:var(--accent);}
@@ -367,6 +401,7 @@
     .icon-btn{width:40px; height:34px;}
     .icon-btn svg{width:19px; height:19px;}
     #playhead-head{left:-20px; width:40px; height:30px;}
+    #playhead-grab{left:-12px; width:24px;}
     #playhead-head::before{left:15px; border-left-width:6px; border-right-width:6px; border-top-width:9px;}
     #scrubber{height:8px;}
     #scrubber::-webkit-slider-thumb{width:20px; height:20px;}
@@ -452,13 +487,28 @@
 <div id="main">
   <aside id="library">
     <div class="panel-head">
-      <span>Media library</span>
-      <button id="add-media-btn" title="Add media files">+ Add</button>
+      <span class="panel-title">Assets</span>
+      <div class="panel-head-actions">
+        <button class="lib-head-btn" id="lib-view-btn" title="Toggle grid / list view">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>
+        </button>
+        <button class="lib-head-btn" id="lib-sort-btn" title="Sort by name">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16"/><path d="M4 17l3 3 3-3"/><path d="M13 6h7"/><path d="M13 11h5"/><path d="M13 16h3"/></svg>
+        </button>
+        <button class="btn" id="add-media-btn" title="Import media files">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 16l-4-4-4 4"/><path d="M12 12v9"/><path d="M20.4 18.4A5 5 0 0 0 18 9h-1.3A8 8 0 1 0 3 16.3"/></svg>
+          Import
+        </button>
+      </div>
     </div>
     <div id="lib-sheet-hint">Tap an item to add it at the playhead.</div>
     <input type="file" id="file-input" accept=".mp4,.mov,.wav,.mp3,.png,.jpg,.jpeg,video/mp4,video/quicktime,audio/wav,audio/mpeg,image/png,image/jpeg" multiple hidden>
     <div id="library-list">
-      <div id="library-empty"><span class="empty-wide">Drop MOV, MP4, WAV, MP3, PNG or JPG files anywhere in the window, or use “+ Add”. Drag items from here onto the timeline.</span><span class="empty-narrow">Tap “+ Add” to add media.</span></div>
+      <div id="library-empty">
+        <span class="drop-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4"/><path d="M8 8l4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></span>
+        <span class="empty-wide">Drag and drop videos, photos, and audio files here</span>
+        <span class="empty-narrow">Tap “Import” to add media.</span>
+      </div>
     </div>
   </aside>
 
@@ -479,34 +529,40 @@
       </button>
       <span id="timecode">00:00.00 <span class="total">/ 00:00.00</span></span>
       <input type="range" id="scrubber" min="0" max="0" step="0.001" value="0">
+      <button id="fullscreen-btn" title="Full screen">
+        <svg id="fs-enter" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+        <svg id="fs-exit" viewBox="0 0 24 24" style="display:none"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>
+      </button>
     </div>
   </section>
 </div>
 
 <div id="timeline-panel">
   <div id="tl-toolbar">
-    <button class="btn icon-btn" id="add-track-btn" title="Add media">+</button>
+    <button class="btn icon-btn" id="new-track-btn" title="Add a video track">+</button>
     <button class="btn icon-btn" id="del-clip-btn" title="Delete clip" disabled>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
     </button>
-    <button class="btn" id="new-track-btn" title="Add a video track">+ Track</button>
+    <button class="btn icon-btn" id="split-btn" title="Split selected clip at playhead (S)" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
+    </button>
     <button class="btn" id="fx-btn" title="Video effects &amp; filters" disabled>FX</button>
-    <span class="tb-sep"></span>
+    <span class="spacer"></span>
     <button class="btn icon-btn" id="undo-btn" title="Undo (Ctrl/Cmd+Z)" disabled>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>
     </button>
     <button class="btn icon-btn" id="redo-btn" title="Redo (Ctrl/Cmd+Y)" disabled>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg>
     </button>
-    <span class="spacer"></span>
-    <span>Zoom</span>
+    <span class="tb-sep"></span>
+    <span class="zoom-ic" title="Zoom" aria-label="Zoom"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16" y2="16"/></svg></span>
     <input type="range" id="zoom-slider" min="12" max="300" value="60">
   </div>
   <div id="tl-scroll">
     <div id="tl-inner">
       <div id="ruler"></div>
       <div id="tracks-host"></div>
-      <div id="playhead"><div id="playhead-head"></div></div>
+      <div id="playhead"><div id="playhead-head"></div><div id="playhead-grab"></div></div>
       <div id="snap-guide"></div>
     </div>
   </div>
@@ -548,7 +604,7 @@
   <div id="img-editor-card">
     <div id="img-editor-head">
       <h2>Edit image</h2>
-      <span id="img-editor-name"></span>
+      <input id="img-editor-name" title="Click to rename" spellcheck="false" autocomplete="off">
     </div>
     <div id="img-editor-stage">
       <canvas id="img-editor-canvas"></canvas>
@@ -556,6 +612,10 @@
     <div id="img-editor-tools">
       <button class="btn" id="img-bg-btn" title="Isolate the subject and remove the background">Remove background</button>
       <button class="btn" id="img-reset-btn" title="Discard edits and start over">Reset</button>
+      <label id="img-strength-wrap" title="Lower keeps more of the subject; higher removes more">
+        <span>Removal</span>
+        <input type="range" id="img-strength" min="0" max="100" value="50">
+      </label>
       <span id="img-editor-hint">Drag the corners or inside the box to crop.</span>
       <span id="img-editor-status"></span>
     </div>
@@ -841,7 +901,7 @@ function renderLibrary() {
   if (!mediaLibrary.length) {
     const empty = document.createElement("div");
     empty.id = "library-empty";
-    empty.innerHTML = '<span class="empty-wide">Drop MOV, MP4, WAV, MP3, PNG or JPG files anywhere in the window, or use “+ Add”. Drag items from here onto the timeline.</span><span class="empty-narrow">Tap “+ Add” to add media.</span>';
+    empty.innerHTML = '<span class="drop-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4"/><path d="M8 8l4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></span><span class="empty-wide">Drag and drop videos, photos, and audio files here</span><span class="empty-narrow">Tap “Import” to add media.</span>';
     host.appendChild(empty);
     return;
   }
@@ -911,6 +971,15 @@ function renderLibrary() {
 /* file picker + drop-anywhere */
 $("#add-media-btn").addEventListener("click", () => $("#file-input").click());
 $("#file-input").addEventListener("change", (e) => { addFiles([...e.target.files]); e.target.value = ""; });
+
+/* library header: sort (toggle name A–Z / Z–A) and grid/list view toggle */
+let librarySortDir = 1;
+$("#lib-sort-btn").addEventListener("click", () => {
+  mediaLibrary.sort((a, b) => librarySortDir * a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+  librarySortDir *= -1;
+  renderLibrary();
+});
+$("#lib-view-btn").addEventListener("click", () => $("#library-list").classList.toggle("grid"));
 window.addEventListener("dragover", (e) => { e.preventDefault(); });
 window.addEventListener("drop", (e) => {
   e.preventDefault();
@@ -1100,6 +1169,8 @@ function renderTimeline() {
   const hasSel = !!(selection && findClip(selection.clipId));
   const delBtn = $("#del-clip-btn");
   if (delBtn) { delBtn.disabled = !hasSel; delBtn.classList.toggle("armed", hasSel); }
+  const splitBtn = $("#split-btn");
+  if (splitBtn) splitBtn.disabled = !hasSel;
   if (typeof updateFxPanel === "function") updateFxPanel();
 }
 
@@ -1148,7 +1219,9 @@ function startLibraryDrag(e, media) {
     window.removeEventListener("pointerup", up);
     dragGhost.style.display = "none";
     if (hoverLane) hoverLane.classList.remove("drop-ok", "drop-bad");
-    if (!active || !hoverLane) return;
+    // a plain click (no drag) auto-inserts the asset at the playhead on a blank track
+    if (!active) { addClipAtPlayhead(media); return; }
+    if (!hoverLane) return;
     const tr = tracks.find((t) => t.id === hoverLane.dataset.trackId);
     if (!canDrop(media, tr)) {
       toast(media.type === "audio"
@@ -1405,6 +1478,43 @@ function deleteSelectedClip() {
   requestPreviewRedraw();
 }
 
+/* Split the selected clip in two at the playhead. The second piece keeps the
+   same media + look (effects/blend/motion) and continues the source from the
+   cut; fades split at the boundary (fade-in stays left, fade-out moves right). */
+function splitSelectedClip() {
+  const sel = selectedClip();
+  if (!sel) return;
+  const { track, clip } = sel;
+  const t = playhead;
+  const EPS = 1e-4;
+  if (t <= clip.startTime + EPS || t >= clip.startTime + clip.duration - EPS) {
+    toast("Move the playhead inside the selected clip to split it.", true);
+    return;
+  }
+  pushHistory();
+  const leftDur = t - clip.startTime;
+  const rightDur = clip.startTime + clip.duration - t;
+
+  const right = { ...clip };
+  if (clip.effects) right.effects = { ...clip.effects };
+  right.id = uid("clip");
+  right.startTime = t;
+  right.duration = rightDur;
+  right.sourceStart = (clip.sourceStart || 0) + leftDur; // continue the source (no-op for images)
+  right.fadeIn = 0;                                       // fade-in belonged to the original start
+  if (clip.fadeOut) right.fadeOut = Math.min(clip.fadeOut, rightDur);
+
+  clip.duration = leftDur;                                // shrink the original to the left half
+  if (clip.fadeIn) clip.fadeIn = Math.min(clip.fadeIn, leftDur);
+  clip.fadeOut = 0;                                       // fade-out moved to the right half
+
+  track.clips.push(right);
+  selection = { trackId: track.id, clipId: right.id };
+  renderTimeline();
+  requestPreviewRedraw();
+  toast("Clip split at the playhead.");
+}
+
 /* ---- double-tap / double-click a clip → quick-delete bubble ---- */
 let lastTapClip = { id: null, t: 0 };
 const clipBubble = $("#clip-bubble");
@@ -1435,10 +1545,10 @@ function scrubToClientX(clientX) {
 }
 // scrubbing can fire many pointermoves per frame; coalesce to one update per frame
 function makeRafScrub() {
-  let raf = 0, x = 0;
+  let raf = 0, x = null; // null until a move arrives, so a plain click doesn't re-seek to 0
   return {
-    update(clientX) { x = clientX; if (!raf) raf = requestAnimationFrame(() => { raf = 0; scrubToClientX(x); }); },
-    flush() { if (raf) { cancelAnimationFrame(raf); raf = 0; } scrubToClientX(x); },
+    update(clientX) { x = clientX; if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (x != null) scrubToClientX(x); }); },
+    flush() { if (raf) { cancelAnimationFrame(raf); raf = 0; } if (x != null) scrubToClientX(x); },
   };
 }
 
@@ -1452,35 +1562,44 @@ rulerEl.addEventListener("pointerdown", (e) => {
   window.addEventListener("pointerup", up);
 });
 
-/* grab the playhead head itself to scrub back/forward (esp. on touch) */
-const playheadHead = $("#playhead-head");
-playheadHead.addEventListener("pointerdown", (e) => {
+/* grab the playhead anywhere along its length (head triangle or full-height strip) to scrub */
+function startPlayheadScrub(e) {
   e.preventDefault();
   e.stopPropagation();
   if (playing) setPlaying(false);
-  try { playheadHead.setPointerCapture(e.pointerId); } catch (_) {}
+  const el = e.currentTarget;
+  try { el.setPointerCapture(e.pointerId); } catch (_) {}
   scrubToClientX(e.clientX);
   const s = makeRafScrub();
   const move = (ev) => s.update(ev.clientX);
   const up = (ev) => {
     s.flush();
-    try { playheadHead.releasePointerCapture(ev.pointerId); } catch (_) {}
-    playheadHead.removeEventListener("pointermove", move);
-    playheadHead.removeEventListener("pointerup", up);
-    playheadHead.removeEventListener("pointercancel", up);
+    try { el.releasePointerCapture(ev.pointerId); } catch (_) {}
+    el.removeEventListener("pointermove", move);
+    el.removeEventListener("pointerup", up);
+    el.removeEventListener("pointercancel", up);
   };
-  playheadHead.addEventListener("pointermove", move);
-  playheadHead.addEventListener("pointerup", up);
-  playheadHead.addEventListener("pointercancel", up);
-});
+  el.addEventListener("pointermove", move);
+  el.addEventListener("pointerup", up);
+  el.addEventListener("pointercancel", up);
+}
+$("#playhead-head").addEventListener("pointerdown", startPlayheadScrub);
+$("#playhead-grab").addEventListener("pointerdown", startPlayheadScrub);
 
-/* clicking empty lane space clears selection */
+/* clicking empty lane space clears the selection and moves the playhead there
+   (drag to keep scrubbing) */
 tracksHost.addEventListener("pointerdown", (e) => {
-  if (e.target.classList.contains("track-lane")) {
-    selection = null;
-    renderTimeline();
-    requestPreviewRedraw();
-  }
+  if (!e.target.classList.contains("track-lane")) return;
+  if (selection) { selection = null; renderTimeline(); requestPreviewRedraw(); }
+  if (e.button !== 0) return;
+  e.preventDefault();
+  if (playing) setPlaying(false);
+  scrubToClientX(e.clientX);
+  const s = makeRafScrub();
+  const move = (ev) => s.update(ev.clientX);
+  const up = () => { s.flush(); window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
 });
 
 /* zoom */
@@ -1489,13 +1608,6 @@ $("#zoom-slider").addEventListener("input", (e) => {
   pxPerSec = +e.target.value;
   renderTimeline();
   tlScroll.scrollLeft = timeToX(mid) - tlScroll.clientWidth / 2;
-});
-
-/* "+" opens the media library so the user can add media to the timeline
-   (tracks are also created automatically as media is added). */
-$("#add-track-btn").addEventListener("click", () => {
-  if (matchMedia("(max-width: 820px)").matches) openLibrarySheet();
-  else $("#file-input").click();
 });
 
 /* "+ Track" creates a new, empty visual track as a new top layer */
@@ -1517,6 +1629,7 @@ function addVisualTrack() {
 $("#new-track-btn").addEventListener("click", addVisualTrack);
 
 $("#del-clip-btn").addEventListener("click", deleteSelectedClip);
+$("#split-btn").addEventListener("click", splitSelectedClip);
 
 /* =====================================================================
    UNDO / REDO + CLIPBOARD (copy / paste clips)
@@ -2055,14 +2168,18 @@ function resizeStage() {
   stageScale = Math.min(availW / project.width, availH / project.height, 1);
   if (!isFinite(stageScale) || stageScale <= 0) stageScale = 0.1;
   const stageW = project.width * stageScale, stageH = project.height * stageScale;
-  // The selection overlay spans the entire preview area around the stage (not just a
-  // fixed 60px halo). A clip dragged off the canvas keeps its outline + handles visible
-  // anywhere in the preview, and clampClipIntoView keeps its center inside this region
-  // so the media can never be dragged out of view and "lost".
-  // halo per axis: fill the spare preview space, but never less than the min headroom
-  // nor more than one stage dimension (keeps the overlay canvas a sane size).
-  const padScreenX = clamp((wrap.clientWidth - stageW) / 2, OVERLAY_PAD_SCREEN, Math.max(OVERLAY_PAD_SCREEN, stageW));
-  const padScreenY = clamp((wrap.clientHeight - stageH) / 2, OVERLAY_PAD_SCREEN, Math.max(OVERLAY_PAD_SCREEN, stageH));
+  // The selection overlay fills the ENTIRE preview area around the stage. A clip dragged
+  // off the canvas keeps its outline + handles visible no matter the canvas aspect —
+  // portrait/square canvases leave wide blank margins, and we must cover all of them so
+  // media can't vanish behind the overlay's edge. clampClipIntoView keeps the clip's
+  // center inside this region, so it can never be dragged out of view and "lost".
+  let padScreenX = Math.max(OVERLAY_PAD_SCREEN, (wrap.clientWidth - stageW) / 2);
+  let padScreenY = Math.max(OVERLAY_PAD_SCREEN, (wrap.clientHeight - stageH) / 2);
+  // safety: bound the backing canvas size on extreme aspect mismatches (e.g. a tall
+  // canvas shrunk small in a very wide window) so we never exceed canvas limits.
+  const MAX_OVERLAY_DIM = 8192;
+  padScreenX = Math.min(padScreenX, Math.max(0, (MAX_OVERLAY_DIM - project.width) / 2) * stageScale);
+  padScreenY = Math.min(padScreenY, Math.max(0, (MAX_OVERLAY_DIM - project.height) / 2) * stageScale);
   overlayPadX = padScreenX / stageScale;
   overlayPadY = padScreenY / stageScale;
   overlayCanvas.width = Math.round(project.width + overlayPadX * 2);
@@ -2145,6 +2262,31 @@ $("#play-btn").addEventListener("click", () => setPlaying(!playing));
 $("#back-btn").addEventListener("click", () => { setPlaying(false); seek(0); });
 $("#scrubber").addEventListener("input", (e) => seek(+e.target.value));
 
+/* ---- full-screen playback ---- */
+const fsTarget = $("#preview-col"); // keep the transport controls visible while full-screen
+function fsElement() { return document.fullscreenElement || document.webkitFullscreenElement || null; }
+function toggleFullscreen() {
+  if (fsElement()) {
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  } else {
+    const req = fsTarget.requestFullscreen || fsTarget.webkitRequestFullscreen;
+    if (req) { const p = req.call(fsTarget); if (p && p.catch) p.catch(() => toast("Couldn't enter full screen.", true)); }
+    else toast("Full screen isn't supported in this browser.", true);
+  }
+}
+function onFullscreenChange() {
+  const active = !!fsElement();
+  $("#fs-enter").style.display = active ? "none" : "";
+  $("#fs-exit").style.display = active ? "" : "none";
+  $("#fullscreen-btn").title = active ? "Exit full screen" : "Full screen";
+  // re-fit the stage to the new viewport size (now/no longer full-screen)
+  resizeStage();
+  requestAnimationFrame(resizeStage);
+}
+$("#fullscreen-btn").addEventListener("click", toggleFullscreen);
+document.addEventListener("fullscreenchange", onFullscreenChange);
+document.addEventListener("webkitfullscreenchange", onFullscreenChange);
+
 window.addEventListener("keydown", (e) => {
   if (e.target.matches("input, select, textarea")) return;
 
@@ -2164,11 +2306,18 @@ window.addEventListener("keydown", (e) => {
     if (k === "v") { e.preventDefault(); pasteClipboard(); return; }
   }
 
-  if (e.code === "Space") { e.preventDefault(); setPlaying(!playing); }
+  if (e.code === "Space") {
+    e.preventDefault();
+    // blur any focused button first, or its own Space-activation would toggle a second time
+    if (document.activeElement && document.activeElement.tagName === "BUTTON") document.activeElement.blur();
+    setPlaying(!playing);
+  }
   else if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteSelectedClip(); }
   else if (e.key === "ArrowLeft") seek(playhead - (e.shiftKey ? 1 : 1 / 60));
   else if (e.key === "ArrowRight") seek(playhead + (e.shiftKey ? 1 : 1 / 60));
   else if (e.key === "Home") { e.preventDefault(); setPlaying(false); seek(0); }
+  // "S" splits the selected clip at the playhead (plain key only — leave Ctrl/Cmd+S for the browser)
+  else if ((e.key === "s" || e.key === "S") && !mod && !e.altKey) { e.preventDefault(); splitSelectedClip(); }
 });
 
 /* ---------------- A/V element sync (preview only) ---------------- */
@@ -3305,7 +3454,8 @@ function openImageEditor(media) {
   imgEditor.work = work;
   imgEditor.crop = { x: 0, y: 0, w, h };
   imgEditor.drag = null;
-  $("#img-editor-name").textContent = media.name;
+  clearMatte(); // no background-removal matte yet; hides the strength slider
+  $("#img-editor-name").value = media.name;
   imgEditorStatus("", false);
   setImgEditorBusy(false);
   imgEditorModal.classList.add("open");
@@ -3317,6 +3467,7 @@ function closeImageEditor() {
   imgEditor.media = null;
   imgEditor.work = null;
   imgEditor.drag = null;
+  clearMatte(); // release the (full-size) matte canvas + confidence array
   imgEditorModal.classList.remove("open");
 }
 
@@ -3453,28 +3604,97 @@ function loadBgRemoval() {
   return bgRemovalP;
 }
 
+function cloneCanvas(src) {
+  const c = document.createElement("canvas");
+  c.width = src.width; c.height = src.height;
+  c.getContext("2d").drawImage(src, 0, 0);
+  return c;
+}
+
+function showStrengthSlider(show) {
+  const wrap = $("#img-strength-wrap");
+  if (wrap) wrap.style.display = show ? "flex" : "none";
+  const hint = $("#img-editor-hint");
+  if (hint) hint.style.display = show ? "none" : "";
+}
+
+function clearMatte() {
+  imgEditor.matteBase = null;
+  imgEditor.conf = null;
+  showStrengthSlider(false);
+}
+
+/* Build a per-pixel foreground-confidence map (0..255) from the model's
+   returned image. Robust to whether it gave a grayscale matte (use luminance)
+   or an alpha cutout (use alpha), and auto-orients so high = subject by
+   sampling the corners, which are virtually always background. */
+function confidenceFromMask(maskCanvas) {
+  const w = maskCanvas.width, h = maskCanvas.height, n = w * h;
+  const data = maskCanvas.getContext("2d").getImageData(0, 0, w, h).data;
+  const conf = new Uint8ClampedArray(n);
+  let alphaVaries = false;
+  for (let i = 0; i < n; i++) { if (data[i * 4 + 3] < 250) { alphaVaries = true; break; } }
+  for (let i = 0; i < n; i++) {
+    conf[i] = alphaVaries ? data[i * 4 + 3]
+      : (data[i * 4] * 0.299 + data[i * 4 + 1] * 0.587 + data[i * 4 + 2] * 0.114);
+  }
+  const corners = [0, w - 1, (h - 1) * w, n - 1];
+  let cs = 0; for (const k of corners) cs += conf[k]; cs /= corners.length;
+  if (cs > 127) for (let i = 0; i < n; i++) conf[i] = 255 - conf[i]; // invert: corners are background
+  return conf;
+}
+
+/* Re-composite matteBase using the confidence map + current threshold, with a
+   soft edge. Cheap enough to run live while dragging the strength slider. */
+function recompositeMatte() {
+  const base = imgEditor.matteBase, conf = imgEditor.conf;
+  if (!base || !conf) return;
+  const w = base.width, h = base.height, n = w * h;
+  const img = base.getContext("2d").getImageData(0, 0, w, h); // fresh copy each call
+  const d = img.data;
+  const T = imgEditor.threshold * 255, soft = 20, lo = T - soft, span = soft * 2;
+  for (let i = 0; i < n; i++) {
+    const c = conf[i];
+    let a;
+    if (c <= lo) a = 0; else if (c >= lo + span) a = 255; else a = (c - lo) / span * 255;
+    d[i * 4 + 3] = Math.round(d[i * 4 + 3] * a / 255); // keep any pre-existing alpha
+  }
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  c.getContext("2d").putImageData(img, 0, 0);
+  imgEditor.work = c;
+  drawImageEditor();
+}
+
 $("#img-bg-btn").addEventListener("click", async () => {
   if (!imgEditor.open || imgEditor.busy || !imgEditor.work) return;
   setImgEditorBusy(true);
   imgEditorStatus("Loading background remover…", true);
   try {
     const { removeBackground } = await loadBgRemoval();
+    const base = cloneCanvas(imgEditor.work); // the pixels we'll cut from
     const srcBlob = await new Promise((res, rej) =>
-      imgEditor.work.toBlob((b) => (b ? res(b) : rej(new Error("encode failed"))), "image/png"));
-    const outBlob = await removeBackground(srcBlob, {
+      base.toBlob((b) => (b ? res(b) : rej(new Error("encode failed"))), "image/png"));
+    // ask for the soft alpha MATTE (not a baked cutout) so the slider can fine-tune it
+    const maskBlob = await removeBackground(srcBlob, {
+      output: { type: "mask", format: "image/png" },
       progress: (key, cur, total) => {
         if (/fetch|download/i.test(String(key))) imgEditorStatus(`Downloading model… ${total ? Math.round(cur / total * 100) + "%" : ""}`, true);
         else imgEditorStatus("Isolating subject…", true);
       },
     });
-    const bmp = await createImageBitmap(outBlob);
-    const c = document.createElement("canvas");
-    c.width = bmp.width; c.height = bmp.height;
-    c.getContext("2d").drawImage(bmp, 0, 0);
+    const bmp = await createImageBitmap(maskBlob);
+    const mcv = document.createElement("canvas");
+    mcv.width = base.width; mcv.height = base.height;          // normalize mask to base size
+    mcv.getContext("2d").drawImage(bmp, 0, 0, base.width, base.height);
     if (bmp.close) bmp.close();
-    imgEditor.work = c; // same pixel dimensions, now with the background cut out
-    drawImageEditor();
-    imgEditorStatus("Background removed.", false);
+    imgEditor.matteBase = base;
+    imgEditor.conf = confidenceFromMask(mcv);
+    imgEditor.threshold = 0.5;
+    $("#img-strength").value = 50;
+    showStrengthSlider(true);
+    recompositeMatte();
+    imgEditorStatus("Background removed — drag “Removal” to fine-tune.", false);
   } catch (err) {
     console.error(err);
     imgEditorStatus("", false);
@@ -3482,6 +3702,12 @@ $("#img-bg-btn").addEventListener("click", async () => {
   } finally {
     setImgEditorBusy(false);
   }
+});
+
+let strengthRaf = 0;
+$("#img-strength").addEventListener("input", (e) => {
+  imgEditor.threshold = clamp((+e.target.value) / 100, 0, 1);
+  if (!strengthRaf) strengthRaf = requestAnimationFrame(() => { strengthRaf = 0; recompositeMatte(); });
 });
 
 $("#img-reset-btn").addEventListener("click", () => {
@@ -3528,6 +3754,27 @@ $("#img-editor-apply").addEventListener("click", () => {
 $("#img-editor-cancel").addEventListener("click", () => { if (!imgEditor.busy) closeImageEditor(); });
 imgEditorModal.addEventListener("pointerdown", (e) => { if (e.target === imgEditorModal && !imgEditor.busy) closeImageEditor(); });
 window.addEventListener("resize", () => { if (imgEditor.open) layoutImageEditor(); });
+
+/* rename the media by editing the filename field in the editor header */
+const imgNameInput = $("#img-editor-name");
+function commitImgRename() {
+  if (!imgEditor.media) return;
+  const v = imgNameInput.value.trim();
+  if (v && v !== imgEditor.media.name) {
+    imgEditor.media.name = v;
+    renderLibrary();
+    renderTimeline(); // clip labels read the media name
+  } else {
+    imgNameInput.value = imgEditor.media.name; // ignore empty / unchanged
+  }
+}
+imgNameInput.addEventListener("change", commitImgRename);
+imgNameInput.addEventListener("blur", commitImgRename);
+imgNameInput.addEventListener("keydown", (e) => {
+  e.stopPropagation(); // don't let timeline/editor shortcuts fire while typing a name
+  if (e.key === "Enter") { e.preventDefault(); imgNameInput.blur(); }
+  else if (e.key === "Escape") { e.preventDefault(); imgNameInput.value = imgEditor.media ? imgEditor.media.name : ""; imgNameInput.blur(); }
+});
 
 /* ---------------- boot ---------------- */
 renderLibrary();
